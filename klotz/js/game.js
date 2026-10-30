@@ -287,8 +287,21 @@
   ui.btnFailHint.addEventListener('click', requestHint);
   ui.btnNext.addEventListener('click', nextLevel);
   ui.btnPlay.addEventListener('click', function () { startLevel(progress.level); });
+  // Zurücksetzen mit Bestätigung per zweitem Tippen (confirm() ist in
+  // eingebetteten Ansichten/WebViews oft blockiert)
+  let resetArmed = 0;
+  function disarmReset() {
+    clearTimeout(resetArmed);
+    resetArmed = 0;
+    ui.btnReset.textContent = 'Fortschritt zurücksetzen';
+  }
   ui.btnReset.addEventListener('click', function () {
-    if (!window.confirm('Fortschritt wirklich löschen und bei Level 1 beginnen?')) return;
+    if (!resetArmed) {
+      ui.btnReset.textContent = 'Wirklich bei Level 1 neu beginnen? Nochmal tippen';
+      resetArmed = setTimeout(disarmReset, 3000);
+      return;
+    }
+    disarmReset();
     progress.level = 1;
     progress.best = 1;
     progress.hints = [];
