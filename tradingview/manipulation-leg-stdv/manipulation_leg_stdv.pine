@@ -1,0 +1,816 @@
+//@version=6
+// =====================================================================================================
+// Manipulation Leg – Liquidity Sweep & STDV
+// -----------------------------------------------------------------------------------------------------
+// AUS DEM REFERENZVIDEO („How to spot valid STDV manipulation legs“, ca. 39 s):
+//   • Ein Manipulation Leg ist eine Fehlbewegung, die Liquidität abholt und danach entgegengesetzt dreht.
+//   • Die STDV-Messung wird auf dem 5- oder 15-Minuten-Zeitrahmen angelegt.
+//   • Level 0 = Start der Manipulationsbewegung (A), Level 1 = Ende der Bewegung (B).
+//   • Die negativen Projektionslevel liegen auf der anderen Seite von Level 0, also entgegen der
+//     Manipulationsrichtung.
+//
+// ZUSÄTZLICHE TECHNISCHE FESTLEGUNGEN DIESES SKRIPTS (stehen NICHT im Video):
+//   • Swing-Pivots mit leftBars/rightBars (Standard 3/3 – Beispielwerte, nicht optimiert).
+//   • Sweep erst ab epsilon = minSweepTicks × syminfo.mintick jenseits von L (bloße Berührung zählt nicht).
+//   • Bestätigung erst, wenn eine SPÄTERE abgeschlossene Quellkerze jenseits von A schließt (streng, verzögert).
+//   • Frist maxBarsToConfirm, Ungültigkeit bei Bruch von B um ≥ 1 Tick, Gleichstandsregel für Pivots.
+//
+// Die STDV-Level sind Vielfache der Messstrecke A–B: Preis(q) = A + q × (B − A).
+// Es wird KEINE statistische Standardabweichung berechnet. Die Level sind Beobachtungsmarken und
+// keine garantierten Reaktionszonen oder Take-Profit-Regeln.
+// =====================================================================================================
+indicator("Manipulation Leg – Liquidity Sweep & STDV", shorttitle = "Manip Leg STDV", overlay = true, max_lines_count = 500, max_labels_count = 500)
+
+// ───────────────────────────────────────── Konstanten ─────────────────────────────────────────
+
+// Zustände
+const int ST_SEARCH    = 0   // Suche     – kein laufender Kandidat in dieser Richtung
+const int ST_CANDIDATE = 1   // Kandidat  – Sweep erkannt, Bestätigung ausstehend (vorläufig, B darf wandern)
+const int ST_CONFIRMED = 2   // bestätigt – A und B eingefroren
+const int ST_INVALID   = 3   // ungültig  – bestätigtes Leg, B später um ≥ 1 Tick gebrochen
+const int ST_EXPIRED   = 4   // abgelaufen – Kandidat ohne Bestätigung beendet (Frist oder ersetzt)
+
+// Richtungen. Long-Szenario = Manipulation ABWÄRTS (Sweep unter ein Tief), Projektion AUFWÄRTS.
+//             Short-Szenario = Manipulation AUFWÄRTS (Sweep über ein Hoch), Projektion ABWÄRTS.
+const int DIR_LONG  = 1
+const int DIR_SHORT = -1
+
+// Trefferarten der Projektionslevel
+const int HIT_NONE   = 0
+const int HIT_PRE    = 1     // schon bis einschließlich der Bestätigungskerze erreicht → kein Alarm
+const int HIT_TOUCH  = 2     // berührt (Extrem liegt weniger als 1 Tick jenseits des Levels)
+const int HIT_EXCEED = 3     // um mindestens 1 Tick überschritten
+const int HIT_GAP    = 4     // Kerze eröffnet bereits ≥ 1 Tick jenseits des Levels (Kurslücke)
+
+// true = A/B im manuellen Modus beim Hinzufügen per Klick auf den Chart wählen (interaktiver Modus).
+const bool MANUAL_PICK_ON_CHART = false
+
+// ───────────────────────────────────────── Eingaben ─────────────────────────────────────────
+
+const string G_SRC = "1 · Quelle (laut Video: 5m oder 15m)"
+const string G_STR = "2 · Erkennung (technische Ergänzung, nicht aus dem Video)"
+const string G_DSP = "3 · Darstellung"
+const string G_LVL = "4 · STDV-Level (im Video sichtbar)"
+const string G_MAN = "5 · Manueller Kontrollmodus"
+const string G_ALR = "6 · Meldungen über alert()"
+
+string srcTF = input.string("5", "Analyse-Zeitrahmen (Minuten)", options = ["5", "15"], group = G_SRC,
+  tooltip = "Alle Swing-, Sweep-, Anker- und Bestätigungsberechnungen nutzen ausschließlich abgeschlossene Kerzen dieses Zeitrahmens. Der Chart darf gleich oder kleiner sein.")
+
+int leftBars = input.int(3, "Pivot leftBars", minval = 1, maxval = 50, group = G_STR, inline = "piv")
+int rightBars = input.int(3, "rightBars", minval = 1, maxval = 50, group = G_STR, inline = "piv",
+  tooltip = "Beispiel-Standardwerte, nicht aus dem Video und nicht optimiert. Ein Pivot ist erst nach rightBars abgeschlossenen Quellkerzen verwendbar.")
+int minSweepTicks = input.int(1, "minSweepTicks", minval = 1, maxval = 1000, group = G_STR,
+  tooltip = "epsilon = minSweepTicks × syminfo.mintick. Long: low ≤ L − epsilon. Short: high ≥ L + epsilon. Eine bloße Berührung ist kein Sweep.")
+int maxBarsToConfirm = input.int(20, "maxBarsToConfirm (Quellkerzen)", minval = 1, maxval = 500, group = G_STR,
+  tooltip = "So viele abgeschlossene Quellkerzen NACH der Sweep-Kerze darf die Bestätigung dauern, sonst läuft der Kandidat ab.")
+int bufferSize = input.int(1000, "Rückblick-Puffer (Quellkerzen)", minval = 100, maxval = 5000, group = G_STR,
+  tooltip = "Anzahl gespeicherter Quellkerzen. Pivots, die aus dem Puffer fallen, werden verworfen.")
+int maxPivots = input.int(100, "Max. gespeicherte Pivots je Seite", minval = 10, maxval = 500, group = G_STR)
+
+bool showCand = input.bool(true, "Kandidaten anzeigen (gestrichelt)", group = G_DSP)
+bool showExpired = input.bool(false, "Abgelaufene Kandidaten grau stehen lassen", group = G_DSP)
+int maxLegs = input.int(10, "Historie: letzte bestätigte Legs", minval = 1, maxval = 50, group = G_DSP)
+bool showProj = input.bool(true, "STDV-Projektionen", group = G_DSP, inline = "proj")
+int projLegs = input.int(3, "für die jüngsten n Legs", minval = 1, maxval = 10, group = G_DSP, inline = "proj")
+bool showKnown = input.bool(false, "Erkennungszeitpunkte von A und L markieren", group = G_DSP)
+bool showTable = input.bool(true, "Statustabelle", group = G_DSP, inline = "tbl")
+bool selfTest = input.bool(true, "Formel-Selbsttest", group = G_DSP, inline = "tbl")
+color colLong = input.color(#089981, "Long", group = G_DSP, inline = "col")
+color colShort = input.color(#F23645, "Short", group = G_DSP, inline = "col")
+color colDead = input.color(#787B86, "ungültig/abgelaufen", group = G_DSP, inline = "col")
+color colManual = input.color(#FF9800, "manuell", group = G_DSP, inline = "col")
+string lblSizeIn = input.string("small", "Label-Größe", options = ["tiny", "small", "normal"], group = G_DSP)
+
+bool lv1    = input.bool(true, "1",     group = G_LVL, inline = "l1")
+bool lv05   = input.bool(true, "0.5",   group = G_LVL, inline = "l1")
+bool lv0    = input.bool(true, "0",     group = G_LVL, inline = "l1")
+bool lvm1   = input.bool(true, "-1",    group = G_LVL, inline = "l2")
+bool lvm15  = input.bool(true, "-1.5",  group = G_LVL, inline = "l2")
+bool lvm2   = input.bool(true, "-2",    group = G_LVL, inline = "l2")
+bool lvm225 = input.bool(true, "-2.25", group = G_LVL, inline = "l3")
+bool lvm25  = input.bool(true, "-2.5",  group = G_LVL, inline = "l3")
+bool lvm35  = input.bool(true, "-3.5",  group = G_LVL, inline = "l3")
+bool lvm4   = input.bool(true, "-4",    group = G_LVL, inline = "l4")
+bool lvm425 = input.bool(true, "-4.25", group = G_LVL, inline = "l4")
+bool lvm45  = input.bool(true, "-4.5",  group = G_LVL, inline = "l4")
+
+bool manualOn = input.bool(false, "Manuellen Modus aktivieren", group = G_MAN)
+int manATime = input.time(timestamp("01 Jan 2024 00:00 +0000"), "A · Start / 0", group = G_MAN, inline = "mA", confirm = MANUAL_PICK_ON_CHART)
+float manAPrice = input.price(0.0, "Preis", group = G_MAN, inline = "mA", confirm = MANUAL_PICK_ON_CHART)
+int manBTime = input.time(timestamp("01 Jan 2024 00:05 +0000"), "B · Extrem / 1", group = G_MAN, inline = "mB", confirm = MANUAL_PICK_ON_CHART)
+float manBPrice = input.price(0.0, "Preis", group = G_MAN, inline = "mB", confirm = MANUAL_PICK_ON_CHART)
+
+bool alCand = input.bool(true, "Vorläufiger Sweep-Kandidat", group = G_ALR)
+bool alConf = input.bool(true, "Long-/Short-Szenario bestätigt", group = G_ALR)
+bool alHit = input.bool(true, "Projektionslevel nach Bestätigung erreicht", group = G_ALR)
+bool alInv = input.bool(true, "Bestätigtes Leg ungültig", group = G_ALR)
+bool alExp = input.bool(false, "Kandidat abgelaufen", group = G_ALR)
+
+// ───────────────────────────────────────── Typen ─────────────────────────────────────────
+
+// Bestätigter Swing-Pivot einer Quellkerze.
+type Pivot
+    int   idx        // laufender Index der Pivot-Quellkerze
+    int   t          // Öffnungszeit der Pivot-Kerze (Zeitpunkt des Pivots)
+    float price      // High (Swing-Hoch) bzw. Low (Swing-Tief)
+    int   knownIdx   // Index der Kerze, mit deren Schluss der Pivot bestätigt war (= idx + rightBars)
+    int   knownT     // Schlusszeit dieser Kerze (= Zeitpunkt, ab dem der Pivot erkennbar war)
+
+// Ein Manipulation Leg (Kandidat, bestätigt, ungültig, abgelaufen oder manuell).
+type Leg
+    int          dir
+    int          state
+    bool         manual
+    float        lPrice
+    int          lIdx
+    int          lT
+    int          lKnownT
+    float        aPrice
+    int          aIdx
+    int          aT
+    int          aKnownT
+    float        bPrice
+    int          bIdx
+    int          bT
+    int          sweepIdx
+    int          sweepT
+    int          sweepTC
+    int          confIdx
+    int          confT
+    int          confChartT
+    float        confClose
+    int          endIdx
+    int          endT
+    int          endChartT
+    string       endReason
+    float        extremeD
+    int          extraLevels
+    array<int>   hitState
+    array<int>   projLvl
+    array<line>  projLn
+    array<label> projLb
+    line         lnL
+    line         lnAB
+    label        lbL
+    label        lbA
+    label        lbB
+    label        lbSweep
+    label        lbConf
+    label        lbEnd
+    label        lbKnownA
+    label        lbKnownL
+
+// Ereignisse der aktuellen Chartkerze (für alertcondition(), alert() und das Datenfenster).
+type Events
+    bool   candLong  = false
+    bool   candShort = false
+    bool   confLong  = false
+    bool   confShort = false
+    bool   hit       = false
+    bool   invalid   = false
+    bool   expired   = false
+    string msg       = ""
+
+// ───────────────────────────────────────── Globale Daten ─────────────────────────────────────────
+
+float  TICK     = syminfo.mintick
+float  TOL      = syminfo.mintick * 0.01       // reine Gleitkomma-Toleranz (1 % eines Ticks)
+float  EPS      = minSweepTicks * syminfo.mintick
+string LBL_SIZE = lblSizeIn == "tiny" ? size.tiny : lblSizeIn == "normal" ? size.normal : size.small
+
+var array<float> LEVELS = array.from(1.0, 0.5, 0.0, -1.0, -1.5, -2.0, -2.25, -2.5, -3.5, -4.0, -4.25, -4.5)
+var array<bool>  LVL_ON = array.from(lv1, lv05, lv0, lvm1, lvm15, lvm2, lvm225, lvm25, lvm35, lvm4, lvm425, lvm45)
+
+// Puffer der abgeschlossenen Quellkerzen (älteste zuerst). Index der neuesten Kerze = srcCount − 1.
+var array<int>   bufT  = array.new<int>()
+var array<int>   bufTC = array.new<int>()
+var array<float> bufO  = array.new<float>()
+var array<float> bufH  = array.new<float>()
+var array<float> bufL  = array.new<float>()
+var array<float> bufC  = array.new<float>()
+var int srcCount = 0
+var int lastSrcT = na
+
+var array<Pivot> pivHi    = array.new<Pivot>()    // bestätigte Swing-Hochs, aufsteigend nach idx
+var array<Pivot> pivLo    = array.new<Pivot>()    // bestätigte Swing-Tiefs, aufsteigend nach idx
+var array<Leg>   cand     = array.new<Leg>(2, na) // [0] laufender Long-Kandidat, [1] laufender Short-Kandidat
+var array<Leg>   confLegs = array.new<Leg>()      // bestätigte Legs (auch später ungültige), älteste zuerst
+var array<Leg>   deadLegs = array.new<Leg>()      // sichtbar gehaltene abgelaufene Kandidaten
+var array<Leg>   lastLeg  = array.new<Leg>(1, na)
+// Zähler: 0 Kand. Long, 1 Kand. Short, 2 best. Long, 3 best. Short, 4 ungültig, 5 abgelaufen,
+//         6 Projektionstreffer, 7 Sweeps ohne gültiges A, 8 Strukturfehler, 9 zusammengeführte Sweeps
+var array<int>   cnt      = array.new<int>(10, 0)
+
+// ───────────────────────────────────────── Hilfsfunktionen ─────────────────────────────────────────
+
+f_first() =>
+    srcCount - bufH.size()
+
+f_t(int i) =>
+    bufT.get(i - f_first())
+
+f_tc(int i) =>
+    bufTC.get(i - f_first())
+
+f_o(int i) =>
+    bufO.get(i - f_first())
+
+f_h(int i) =>
+    bufH.get(i - f_first())
+
+f_l(int i) =>
+    bufL.get(i - f_first())
+
+f_c(int i) =>
+    bufC.get(i - f_first())
+
+// Richtungsraum: Das Short-Szenario wird als gespiegeltes Long-Szenario gerechnet (Preis × −1).
+// Long: lowD = low, highD = high.  Short: lowD = −high, highD = −low.  Jeder Ankerpreis X wird zu dir × X.
+// Damit gelten dieselben Ungleichungen für beide Richtungen (siehe README, Abschnitt 1).
+f_lowD(int i, int dir) =>
+    dir == DIR_LONG ? f_l(i) : -f_h(i)
+
+f_highD(int i, int dir) =>
+    dir == DIR_LONG ? f_h(i) : -f_l(i)
+
+// STDV-Skala als Vielfache der Messstrecke A–B.
+f_level(float a, float b, float q) =>
+    a + q * (b - a)
+
+f_px(float p) =>
+    str.tostring(p, format.mintick)
+
+f_tm(int t) =>
+    na(t) ? "–" : str.format_time(t, "yyyy-MM-dd HH:mm", syminfo.timezone)
+
+f_qtxt(float q) =>
+    str.tostring(q, "#.##")
+
+f_slot(int dir) =>
+    dir == DIR_LONG ? 0 : 1
+
+f_dirName(int dir) =>
+    dir == DIR_LONG ? "Long-Szenario (Manipulation ↓ · Projektion ↑)" : "Short-Szenario (Manipulation ↑ · Projektion ↓)"
+
+f_dirShort(int dir) =>
+    dir == DIR_LONG ? "Long" : "Short"
+
+f_stateName(int s) =>
+    switch s
+        ST_SEARCH    => "Suche"
+        ST_CANDIDATE => "Kandidat"
+        ST_CONFIRMED => "bestätigt"
+        ST_INVALID   => "ungültig"
+        => "abgelaufen"
+
+f_col(Leg g) =>
+    g.manual ? colManual : g.state == ST_INVALID or g.state == ST_EXPIRED ? colDead : g.dir == DIR_LONG ? colLong : colShort
+
+f_msg(Events ev, string s, bool enabled) =>
+    if enabled
+        ev.msg := ev.msg == "" ? s : ev.msg + "\n" + s
+    enabled
+
+f_dLn(line l) =>
+    if not na(l)
+        line.delete(l)
+    true
+
+f_dLb(label l) =>
+    if not na(l)
+        label.delete(l)
+    true
+
+f_anchors(Leg g) =>
+    "A=" + f_px(g.aPrice) + " (0) | B=" + f_px(g.bPrice) + " (1)" + (g.manual ? "" : " | L=" + f_px(g.lPrice))
+
+f_tip(Leg g) =>
+    string s = f_dirName(g.dir) + (g.manual ? " · MANUELL (nicht algorithmisch bestätigt)" : "")
+    s += "\nStatus: " + f_stateName(g.state) + (g.endReason != "" ? " (" + g.endReason + ")" : "")
+    if not g.manual
+        s += "\nL " + f_px(g.lPrice) + " · Pivot-Kerze " + f_tm(g.lT) + " · erkennbar ab " + f_tm(g.lKnownT)
+        s += "\nA " + f_px(g.aPrice) + " · Pivot-Kerze " + f_tm(g.aT) + " · erkennbar ab " + f_tm(g.aKnownT)
+        s += "\nSweep-Kerze " + f_tm(g.sweepT) + " · ausgewertet bei Kerzenschluss " + f_tm(g.sweepTC)
+    s += "\nB " + f_px(g.bPrice) + " · Kerze " + f_tm(g.bT)
+    if not na(g.confT)
+        s += "\nBestätigung verfügbar ab " + f_tm(g.confT) + " · Close " + f_px(g.confClose) + (g.dir == DIR_LONG ? " > A" : " < A")
+    if not na(g.endT) and g.state == ST_INVALID
+        s += "\nUngültig ab " + f_tm(g.endT)
+    s
+
+f_txtA(Leg g) =>
+    "A · Start / 0" + (g.manual ? " (manuell)" : "") + "\n" + f_px(g.aPrice)
+
+f_txtB(Leg g) =>
+    string head = g.manual ? "B · Extrem / 1 (manuell)" : "B · Sweep-Extrem / 1"
+    string tail = g.state == ST_CANDIDATE ? "\nKandidat – vorläufig" : g.manual ? "\nnicht algorithmisch bestätigt" : ""
+    head + "\n" + f_px(g.bPrice) + tail
+
+// ───────────────────────────────────────── Zeichnungen ─────────────────────────────────────────
+
+f_projText(Leg g, int i) =>
+    float q = LEVELS.get(i)
+    int hs = g.hitState.get(i)
+    string suf = hs == HIT_PRE ? " · vor Bestätigung erreicht" : hs == HIT_TOUCH ? " · berührt ✓" : hs == HIT_EXCEED ? " · überschritten ✓" : hs == HIT_GAP ? " · per Kurslücke übersprungen ✓" : ""
+    f_qtxt(q) + " · " + f_px(f_level(g.aPrice, g.bPrice, q)) + suf + (g.manual ? " (manuell)" : "")
+
+f_drawProj(Leg g, int x1) =>
+    g.projLvl := array.new<int>()
+    g.projLn := array.new<line>()
+    g.projLb := array.new<label>()
+    color c = f_col(g)
+    for i = 0 to LEVELS.size() - 1
+        if LVL_ON.get(i)
+            float q = LEVELS.get(i)
+            float p = f_level(g.aPrice, g.bPrice, q)
+            string ls = q < 0 ? line.style_dotted : q == 0.5 ? line.style_dashed : line.style_solid
+            g.projLvl.push(i)
+            g.projLn.push(line.new(x1, p, time, p, xloc = xloc.bar_time, color = color.new(c, q < 0 ? 0 : 40), style = ls, width = 1))
+            g.projLb.push(label.new(time, p, f_projText(g, i), xloc = xloc.bar_time, style = label.style_label_left, color = color.new(c, 100), textcolor = c, size = LBL_SIZE))
+    g.projLn.size()
+
+f_deleteProj(Leg g) =>
+    if not na(g.projLn)
+        for ln in g.projLn
+            f_dLn(ln)
+        for lb in g.projLb
+            f_dLb(lb)
+        g.projLn.clear()
+        g.projLb.clear()
+        g.projLvl.clear()
+    true
+
+f_setProjX2(Leg g, int x2) =>
+    if not na(g.projLn)
+        for ln in g.projLn
+            line.set_x2(ln, x2)
+        for lb in g.projLb
+            label.set_x(lb, x2)
+    true
+
+f_refreshProjLabel(Leg g, int i) =>
+    if not na(g.projLvl)
+        int k = g.projLvl.indexof(i)
+        if k >= 0
+            label.set_text(g.projLb.get(k), f_projText(g, i))
+    true
+
+f_deleteLeg(Leg g) =>
+    f_deleteProj(g)
+    f_dLn(g.lnL)
+    f_dLn(g.lnAB)
+    f_dLb(g.lbL)
+    f_dLb(g.lbA)
+    f_dLb(g.lbB)
+    f_dLb(g.lbSweep)
+    f_dLb(g.lbConf)
+    f_dLb(g.lbEnd)
+    f_dLb(g.lbKnownA)
+    f_dLb(g.lbKnownL)
+    true
+
+// Erstzeichnung: L-Linie, Sweep-Marke, A, B und Verbindungslinie A–B an ihren tatsächlichen Quellkerzen.
+f_drawLeg(Leg g) =>
+    color c = f_col(g)
+    bool isLong = g.dir == DIR_LONG
+    string ls = g.state == ST_CANDIDATE ? line.style_dashed : line.style_solid
+    string tip = f_tip(g)
+    if not g.manual
+        g.lnL := line.new(g.lT, g.lPrice, g.sweepT, g.lPrice, xloc = xloc.bar_time, color = c, style = ls, width = 1)
+        g.lbL := label.new(g.lT, g.lPrice, "L · Liquidität\n" + f_px(g.lPrice) + (g.extraLevels > 0 ? " (+" + str.tostring(g.extraLevels) + ")" : ""), xloc = xloc.bar_time, style = isLong ? label.style_label_up : label.style_label_down, color = color.new(c, 60), textcolor = color.white, size = LBL_SIZE, tooltip = tip)
+        g.lbSweep := label.new(g.sweepT, g.lPrice, "", xloc = xloc.bar_time, style = label.style_xcross, color = c, size = size.tiny, tooltip = "Sweep-Kerze " + f_tm(g.sweepT) + " (erstes Über-/Unterschreiten von L um ≥ epsilon; ausgewertet bei Kerzenschluss " + f_tm(g.sweepTC) + ")")
+        if showKnown
+            g.lbKnownA := label.new(g.aKnownT, g.aPrice, "", xloc = xloc.bar_time, style = label.style_diamond, color = c, size = size.tiny, tooltip = "A als Pivot erkennbar ab " + f_tm(g.aKnownT))
+            g.lbKnownL := label.new(g.lKnownT, g.lPrice, "", xloc = xloc.bar_time, style = label.style_diamond, color = c, size = size.tiny, tooltip = "L als Pivot erkennbar ab " + f_tm(g.lKnownT))
+    g.lnAB := line.new(g.aT, g.aPrice, g.bT, g.bPrice, xloc = xloc.bar_time, color = c, style = g.manual ? line.style_dotted : ls, width = 2)
+    g.lbA := label.new(g.aT, g.aPrice, f_txtA(g), xloc = xloc.bar_time, style = isLong ? label.style_label_down : label.style_label_up, color = c, textcolor = color.white, size = LBL_SIZE, tooltip = tip)
+    g.lbB := label.new(g.bT, g.bPrice, f_txtB(g), xloc = xloc.bar_time, style = isLong ? label.style_label_up : label.style_label_down, color = c, textcolor = color.white, size = LBL_SIZE, tooltip = tip)
+    true
+
+// Farbe/Stil an den Zustand anpassen. Die Ankerkoordinaten werden dabei nie verändert.
+f_restyle(Leg g) =>
+    color c = f_col(g)
+    string ls = g.state == ST_CANDIDATE or g.state == ST_EXPIRED ? line.style_dashed : line.style_solid
+    string tip = f_tip(g)
+    if not na(g.lnL)
+        line.set_color(g.lnL, c)
+        line.set_style(g.lnL, ls)
+    if not na(g.lnAB)
+        line.set_color(g.lnAB, c)
+        line.set_style(g.lnAB, ls)
+    if not na(g.lbL)
+        label.set_color(g.lbL, color.new(c, 60))
+        label.set_tooltip(g.lbL, tip)
+    if not na(g.lbSweep)
+        label.set_color(g.lbSweep, c)
+    if not na(g.lbA)
+        label.set_color(g.lbA, c)
+        label.set_tooltip(g.lbA, tip)
+    if not na(g.lbB)
+        label.set_color(g.lbB, c)
+        label.set_text(g.lbB, f_txtB(g))
+        label.set_tooltip(g.lbB, tip)
+    if not na(g.projLn)
+        for ln in g.projLn
+            line.set_color(ln, c)
+        for lb in g.projLb
+            label.set_textcolor(lb, c)
+    true
+
+// ───────────────────────────────────────── Zustandsübergänge ─────────────────────────────────────────
+
+f_expire(Leg g, int n, string reason, Events ev) =>
+    g.state := ST_EXPIRED
+    g.endIdx := n
+    g.endT := f_tc(n)
+    g.endChartT := time
+    g.endReason := reason
+    cnt.set(5, cnt.get(5) + 1)
+    ev.expired := true
+    f_msg(ev, "[ABGELAUFEN] " + f_dirName(g.dir) + " – " + reason + " | " + f_anchors(g) + " | Sweep-Kerze " + f_tm(g.sweepT), alExp)
+    if showExpired and not na(g.lnAB)
+        f_restyle(g)
+        g.lbEnd := label.new(time, f_c(n), "⌛ abgelaufen\n" + reason, xloc = xloc.bar_time, yloc = g.dir == DIR_LONG ? yloc.belowbar : yloc.abovebar, style = g.dir == DIR_LONG ? label.style_label_up : label.style_label_down, color = colDead, textcolor = color.white, size = LBL_SIZE, tooltip = f_tip(g))
+        deadLegs.push(g)
+        if deadLegs.size() > maxLegs
+            f_deleteLeg(deadLegs.shift())
+    else
+        f_deleteLeg(g)
+    lastLeg.set(0, g)
+    true
+
+f_confirm(Leg g, int n, Events ev) =>
+    int dir = g.dir
+    float aD = dir * g.aPrice
+    float bD = dir * g.bPrice
+    g.state := ST_CONFIRMED
+    g.confIdx := n
+    g.confT := f_tc(n)
+    g.confChartT := time
+    g.confClose := f_c(n)
+    // Was bis einschließlich der Bestätigungskerze schon erreicht wurde, erzeugt später keinen Trefferalarm.
+    string projTxt = ""
+    for i = 0 to LEVELS.size() - 1
+        float q = LEVELS.get(i)
+        if q < 0
+            float pD = aD + q * (bD - aD)
+            if g.extremeD >= pD - TOL
+                g.hitState.set(i, HIT_PRE)
+            if LVL_ON.get(i)
+                projTxt += " | " + f_qtxt(q) + "=" + f_px(f_level(g.aPrice, g.bPrice, q)) + (g.hitState.get(i) == HIT_PRE ? "(vorher erreicht)" : "")
+    if na(g.lnAB)
+        f_drawLeg(g)
+    else
+        f_restyle(g)
+    g.lbConf := label.new(time, g.confClose, "✓ " + f_dirShort(dir) + " bestätigt\n" + (dir == DIR_LONG ? "Close > A" : "Close < A"), xloc = xloc.bar_time, yloc = dir == DIR_LONG ? yloc.belowbar : yloc.abovebar, style = dir == DIR_LONG ? label.style_label_up : label.style_label_down, color = f_col(g), textcolor = color.white, size = LBL_SIZE, tooltip = f_tip(g))
+    if showProj
+        f_drawProj(g, time)
+    confLegs.push(g)
+    if confLegs.size() > projLegs
+        f_deleteProj(confLegs.get(confLegs.size() - 1 - projLegs))
+    if confLegs.size() > maxLegs
+        f_deleteLeg(confLegs.shift())
+    cnt.set(dir == DIR_LONG ? 2 : 3, cnt.get(dir == DIR_LONG ? 2 : 3) + 1)
+    if dir == DIR_LONG
+        ev.confLong := true
+    else
+        ev.confShort := true
+    f_msg(ev, "[BESTÄTIGT] " + f_dirName(dir) + " | " + f_anchors(g) + " | Sweep-Kerze " + f_tm(g.sweepT) + " | Bestätigung " + f_tm(g.confT) + " (Close " + f_px(g.confClose) + (dir == DIR_LONG ? " > A)" : " < A)") + projTxt, alConf)
+    lastLeg.set(0, g)
+    true
+
+f_invalidate(Leg g, int n, Events ev) =>
+    bool isLong = g.dir == DIR_LONG
+    g.state := ST_INVALID
+    g.endIdx := n
+    g.endT := f_tc(n)
+    g.endChartT := time
+    g.endReason := isLong ? "B um ≥ 1 Tick unterschritten" : "B um ≥ 1 Tick überschritten"
+    f_restyle(g)
+    f_setProjX2(g, time)
+    g.lbEnd := label.new(time, f_c(n), "✕ ungültig\n" + g.endReason, xloc = xloc.bar_time, yloc = isLong ? yloc.belowbar : yloc.abovebar, style = isLong ? label.style_label_up : label.style_label_down, color = colDead, textcolor = color.white, size = LBL_SIZE, tooltip = f_tip(g))
+    cnt.set(4, cnt.get(4) + 1)
+    ev.invalid := true
+    f_msg(ev, "[UNGÜLTIG] " + f_dirName(g.dir) + " – " + g.endReason + " | " + f_anchors(g) + " | ursprünglich bestätigt " + f_tm(g.confT) + " | ungültig ab " + f_tm(g.endT), alInv)
+    lastLeg.set(0, g)
+    true
+
+// Bestätigtes Leg mit der neuen Quellkerze n prüfen: Projektionstreffer, danach Ungültigkeit.
+f_updateConfirmed(Leg g, int n, Events ev) =>
+    if g.state == ST_CONFIRMED and n > g.confIdx
+        int dir = g.dir
+        float aD = dir * g.aPrice
+        float bD = dir * g.bPrice
+        float hD = f_highD(n, dir)
+        float lD = f_lowD(n, dir)
+        float oD = dir * f_o(n)
+        string hitTxt = ""
+        for i = 0 to LEVELS.size() - 1
+            float q = LEVELS.get(i)
+            if q < 0 and LVL_ON.get(i) and g.hitState.get(i) == HIT_NONE
+                float pD = aD + q * (bD - aD)
+                if hD >= pD - TOL
+                    int kind = oD >= pD + TICK - TOL ? HIT_GAP : hD >= pD + TICK - TOL ? HIT_EXCEED : HIT_TOUCH
+                    g.hitState.set(i, kind)
+                    f_refreshProjLabel(g, i)
+                    hitTxt += " | " + f_qtxt(q) + "=" + f_px(f_level(g.aPrice, g.bPrice, q)) + (kind == HIT_GAP ? " per Kurslücke übersprungen" : kind == HIT_EXCEED ? " überschritten" : " berührt")
+        if hitTxt != ""
+            ev.hit := true
+            cnt.set(6, cnt.get(6) + 1)
+            f_msg(ev, "[PROJEKTION] " + f_dirName(dir) + " | " + f_anchors(g) + " | Quellkerze " + f_tm(f_t(n)) + hitTxt, alHit)
+        if lD <= bD - TICK + TOL
+            f_invalidate(g, n, ev)
+    true
+
+// Laufenden Kandidaten mit der neuen Quellkerze n fortschreiben: B nachziehen, bestätigen oder ablaufen.
+f_updateCandidate(Leg g, int n, Events ev) =>
+    if not na(g) and g.state == ST_CANDIDATE and n > g.sweepIdx
+        int dir = g.dir
+        float lD = f_lowD(n, dir)
+        if lD < dir * g.bPrice
+            g.bPrice := dir * lD
+            g.bIdx := n
+            g.bT := f_t(n)
+            if not na(g.lbB)
+                label.set_xy(g.lbB, g.bT, g.bPrice)
+                label.set_text(g.lbB, f_txtB(g))
+                label.set_tooltip(g.lbB, f_tip(g))
+                line.set_xy2(g.lnAB, g.bT, g.bPrice)
+        g.extremeD := math.max(g.extremeD, f_highD(n, dir))
+        if dir * f_c(n) > dir * g.aPrice
+            f_confirm(g, n, ev)
+            cand.set(f_slot(dir), na)
+        else if n - g.sweepIdx >= maxBarsToConfirm
+            f_expire(g, n, "Frist von " + str.tostring(maxBarsToConfirm) + " Quellkerzen ohne Bestätigung", ev)
+            cand.set(f_slot(dir), na)
+    true
+
+// Sweep-Erkennung auf der neuen Quellkerze n für eine Richtung.
+f_detectSweep(int n, int dir, Events ev) =>
+    array<Pivot> liq  = dir == DIR_LONG ? pivLo : pivHi   // Liquiditätsniveaus L
+    array<Pivot> orig = dir == DIR_LONG ? pivHi : pivLo   // mögliche Startpunkte A
+    float lowN = f_lowD(n, dir)
+    // 1) Alle aktiven, vor Kerze n bestätigten Niveaus, die um mindestens epsilon überschritten wurden.
+    array<int> swept = array.new<int>()
+    for [i, p] in liq
+        if p.knownIdx < n and lowN <= dir * p.price - EPS + TOL
+            swept.push(i)
+    if swept.size() > 0
+        // 2) Jüngstes passendes A: vor Kerze n bekannt und zwischen seiner Pivot-Kerze und der Sweep-Kerze
+        //    (exklusiv) nicht überschritten. Die Sweep-Kerze selbst darf über A reichen (Sweep und Rücklauf in
+        //    derselben Kerze → Kandidat, aber noch keine Bestätigung). Dazu das jüngste gesweepte L vor A, unter A.
+        Pivot selA = na
+        Pivot selL = na
+        float runMax = na
+        int scan = n - 1
+        if orig.size() > 0
+            for k = orig.size() - 1 to 0
+                Pivot pa = orig.get(k)
+                if pa.knownIdx < n
+                    while scan > pa.idx
+                        float hv = f_highD(scan, dir)
+                        runMax := na(runMax) ? hv : math.max(runMax, hv)
+                        scan -= 1
+                    float aD = dir * pa.price
+                    if na(runMax) or runMax <= aD
+                        for s = swept.size() - 1 to 0
+                            Pivot pl = liq.get(swept.get(s))
+                            if pl.idx < pa.idx and dir * pl.price < aD
+                                selA := pa
+                                selL := pl
+                                break
+                if not na(selA)
+                    break
+        int nSwept = swept.size()
+        Leg run = cand.get(f_slot(dir))
+        bool running = not na(run) and run.state == ST_CANDIDATE
+        if na(selA)
+            cnt.set(7, cnt.get(7) + 1)
+        else if running and selA.idx <= run.aIdx
+            // Gleiches (oder älteres) A wie der laufende Kandidat: kein neues Ereignis, Niveaus nur verbrauchen.
+            run.extraLevels += nSwept
+            cnt.set(9, cnt.get(9) + 1)
+        else
+            // B = tiefstes lowD zwischen A (exklusiv) und der Sweep-Kerze n (inklusiv); bei Gleichstand das frühere.
+            float bD = na
+            int bIdx = na
+            for j = selA.idx + 1 to n
+                float lv = f_lowD(j, dir)
+                if na(bD) or lv < bD
+                    bD := lv
+                    bIdx := j
+            float aD = dir * selA.price
+            bool orderOk = selL.idx < selA.idx and selA.knownIdx < n and selA.idx < bIdx and bIdx <= n
+            if not orderOk or aD - bD <= 0
+                cnt.set(8, cnt.get(8) + 1)
+            else
+                if running
+                    f_expire(run, n, "ersetzt durch jüngere Struktur", ev)
+                Leg g = Leg.new(dir = dir, state = ST_CANDIDATE, manual = false,
+                  lPrice = selL.price, lIdx = selL.idx, lT = selL.t, lKnownT = selL.knownT,
+                  aPrice = selA.price, aIdx = selA.idx, aT = selA.t, aKnownT = selA.knownT,
+                  bPrice = dir * bD, bIdx = bIdx, bT = f_t(bIdx),
+                  sweepIdx = n, sweepT = f_t(n), sweepTC = f_tc(n),
+                  endReason = "", extremeD = f_highD(n, dir), extraLevels = nSwept - 1,
+                  hitState = array.new<int>(LEVELS.size(), HIT_NONE))
+                cand.set(f_slot(dir), g)
+                if showCand
+                    f_drawLeg(g)
+                cnt.set(dir == DIR_LONG ? 0 : 1, cnt.get(dir == DIR_LONG ? 0 : 1) + 1)
+                if dir == DIR_LONG
+                    ev.candLong := true
+                else
+                    ev.candShort := true
+                f_msg(ev, "[VORLÄUFIG] Sweep-Kandidat " + f_dirName(dir) + " | " + f_anchors(g) + " | L-Pivot " + f_tm(g.lT) + " | A-Pivot " + f_tm(g.aT) + " | Sweep-Kerze " + f_tm(g.sweepT) + " | noch NICHT bestätigt: erst ein späterer Close " + (dir == DIR_LONG ? "über" : "unter") + " A bestätigt", alCand)
+                lastLeg.set(0, g)
+        // 3) Gesweepte Niveaus sind verbraucht – auch ohne gültiges A. So entsteht kein zweites identisches Ereignis.
+        for s = swept.size() - 1 to 0
+            liq.remove(swept.get(s))
+    true
+
+// Pivot an Kerze p = n − rightBars prüfen. Gleichstandsregel: links strikt, rechts nicht strikt
+// → bei gleich hohen/tiefen Kerzen innerhalb des linken Fensters zählt nur die erste (älteste).
+f_detectPivots(int n) =>
+    int p = n - rightBars
+    if p - leftBars >= f_first()
+        float hp = f_h(p)
+        float lp = f_l(p)
+        bool isH = true
+        bool isL = true
+        for i = 1 to leftBars
+            if f_h(p - i) >= hp
+                isH := false
+            if f_l(p - i) <= lp
+                isL := false
+        for i = 1 to rightBars
+            if f_h(p + i) > hp
+                isH := false
+            if f_l(p + i) < lp
+                isL := false
+        if isH
+            pivHi.push(Pivot.new(p, f_t(p), hp, n, f_tc(n)))
+            if pivHi.size() > maxPivots
+                pivHi.shift()
+        if isL
+            pivLo.push(Pivot.new(p, f_t(p), lp, n, f_tc(n)))
+            if pivLo.size() > maxPivots
+                pivLo.shift()
+    true
+
+f_selfTest() =>
+    array<float> expL = array.from(90.0, 95.0, 100.0, 110.0, 115.0, 120.0, 122.5, 125.0, 135.0, 140.0, 142.5, 145.0)
+    array<float> expS = array.from(110.0, 105.0, 100.0, 90.0, 85.0, 80.0, 77.5, 75.0, 65.0, 60.0, 57.5, 55.0)
+    bool ok = true
+    for i = 0 to LEVELS.size() - 1
+        float q = LEVELS.get(i)
+        if math.abs(f_level(100.0, 90.0, q) - expL.get(i)) > 1e-9 or math.abs(f_level(100.0, 110.0, q) - expS.get(i)) > 1e-9
+            ok := false
+    ok
+
+// ───────────────────────────────────────── Quelldaten ─────────────────────────────────────────
+
+// Nur ABGESCHLOSSENE Quellkerzen: Offset [1] zusammen mit lookahead_on liefert auf jeder Chartkerze die
+// zuletzt vollständig geschlossene Quellkerze – historisch und in Echtzeit gleich, ohne Zukunftswissen.
+[sO, sH, sL, sC, sT, sTC] = request.security(syminfo.tickerid, srcTF, [open[1], high[1], low[1], close[1], time[1], time_close[1]], lookahead = barmerge.lookahead_on)
+
+int  chartSec = timeframe.in_seconds()
+int  srcSec   = timeframe.in_seconds(srcTF)
+bool tfOk     = chartSec <= srcSec
+// Jede neue abgeschlossene Quellkerze wird genau einmal verarbeitet (erkennbar an ihrer Öffnungszeit).
+bool newSrc   = tfOk and not na(sT) and not na(sH) and (na(lastSrcT) or sT > lastSrcT)
+
+// ───────────────────────────────────────── Verarbeitung ─────────────────────────────────────────
+
+Events ev = Events.new()
+
+if newSrc
+    lastSrcT := sT
+    bufT.push(sT)
+    bufTC.push(na(sTC) ? sT + srcSec * 1000 : sTC)
+    bufO.push(sO)
+    bufH.push(sH)
+    bufL.push(sL)
+    bufC.push(sC)
+    srcCount += 1
+    if bufH.size() > bufferSize
+        bufT.shift()
+        bufTC.shift()
+        bufO.shift()
+        bufH.shift()
+        bufL.shift()
+        bufC.shift()
+        int first = srcCount - bufH.size()
+        while pivHi.size() > 0 and pivHi.get(0).idx < first
+            pivHi.shift()
+        while pivLo.size() > 0 and pivLo.get(0).idx < first
+            pivLo.shift()
+    int n = srcCount - 1
+    // Reihenfolge je Quellkerze: (1) bestätigte Legs, (2) laufende Kandidaten, (3) neue Sweeps, (4) neue Pivots.
+    for g in confLegs
+        f_updateConfirmed(g, n, ev)
+    f_updateCandidate(cand.get(0), n, ev)
+    f_updateCandidate(cand.get(1), n, ev)
+    f_detectSweep(n, DIR_LONG, ev)
+    f_detectSweep(n, DIR_SHORT, ev)
+    f_detectPivots(n)
+
+// Projektionslinien aktiver Legs bis zur aktuellen Chartkerze verlängern.
+if barstate.islast and confLegs.size() > 0
+    for k = math.max(0, confLegs.size() - projLegs) to confLegs.size() - 1
+        Leg g = confLegs.get(k)
+        if g.state == ST_CONFIRMED
+            f_setProjX2(g, time)
+
+// ───────────────────────────────────────── Manueller Kontrollmodus ─────────────────────────────────────────
+
+var Leg manLeg = na
+string manNote = manualOn ? "" : "aus"
+if barstate.islast
+    if not na(manLeg)
+        f_deleteLeg(manLeg)
+        manLeg := na
+    if manualOn
+        if manAPrice == 0.0 or manBPrice == 0.0
+            manNote := "A- und B-Preis setzen"
+        else if manAPrice == manBPrice
+            manNote := "A = B – keine Messstrecke"
+        else if manATime >= manBTime
+            manNote := "falsche Reihenfolge: A muss zeitlich vor B liegen"
+        else
+            int mDir = manBPrice < manAPrice ? DIR_LONG : DIR_SHORT
+            Leg m = Leg.new(dir = mDir, state = ST_CONFIRMED, manual = true, aPrice = manAPrice, aT = manATime, bPrice = manBPrice, bT = manBTime, endReason = "", extraLevels = 0, hitState = array.new<int>(LEVELS.size(), HIT_NONE))
+            f_drawLeg(m)
+            f_drawProj(m, manBTime)
+            manLeg := m
+            manNote := f_dirName(mDir) + " · " + f_anchors(m) + " · manuell gesetzt, nicht algorithmisch bestätigt"
+
+// ───────────────────────────────────────── Statustabelle ─────────────────────────────────────────
+
+f_candStatus(Leg c) =>
+    na(c) ? "Suche" : "Kandidat (vorläufig) · " + f_anchors(c) + " · " + str.tostring(srcCount - 1 - c.sweepIdx) + "/" + str.tostring(maxBarsToConfirm) + " Kerzen"
+
+var table tbl = table.new(position.top_right, 2, 9, bgcolor = color.new(#131722, 15), border_color = color.new(#787B86, 60), border_width = 1)
+if barstate.islast and (showTable or not tfOk)
+    color tc = color.white
+    string warn = ""
+    if not tfOk
+        warn := "⚠ Chart-Zeitrahmen (" + timeframe.period + ") ist größer als der Analyse-Zeitrahmen (" + srcTF + "). Es wird nichts berechnet – bitte einen Chart-Zeitrahmen ≤ " + srcTF + " Minuten wählen."
+    else if srcCount < leftBars + rightBars + 1
+        warn := "Historie unzureichend: " + str.tostring(srcCount) + " Quellkerzen, mindestens " + str.tostring(leftBars + rightBars + 1) + " nötig."
+    else
+        warn := "Projektionen sind Beobachtungsmarken – keine Reaktions- oder TP-Garantie."
+    if selfTest
+        warn += "\nFormel-Selbsttest (A=100/B=90 und A=100/B=110): " + (f_selfTest() ? "OK" : "FEHLER")
+    Leg lg = lastLeg.get(0)
+    string lgTxt = na(lg) ? "–" : f_dirName(lg.dir) + " · " + f_stateName(lg.state) + (lg.endReason != "" ? " (" + lg.endReason + ")" : "")
+    string lgAnch = na(lg) ? "–" : f_anchors(lg)
+    string lgTime = na(lg) ? "–" : "Sweep " + f_tm(lg.sweepT) + " · Bestätigung " + f_tm(lg.confT)
+    table.cell(tbl, 0, 0, "Manipulation Leg · STDV", text_color = tc, text_size = size.small, text_halign = text.align_left)
+    table.cell(tbl, 1, 0, "Quelle " + srcTF + "m · Chart " + timeframe.period + " · verarbeitet: " + str.tostring(srcCount), text_color = tc, text_size = size.small, text_halign = text.align_left)
+    table.cell(tbl, 0, 1, "Long (Manip. ↓ / Proj. ↑)", text_color = colLong, text_size = size.small, text_halign = text.align_left)
+    table.cell(tbl, 1, 1, f_candStatus(cand.get(0)), text_color = tc, text_size = size.small, text_halign = text.align_left)
+    table.cell(tbl, 0, 2, "Short (Manip. ↑ / Proj. ↓)", text_color = colShort, text_size = size.small, text_halign = text.align_left)
+    table.cell(tbl, 1, 2, f_candStatus(cand.get(1)), text_color = tc, text_size = size.small, text_halign = text.align_left)
+    table.cell(tbl, 0, 3, "Letztes Leg", text_color = tc, text_size = size.small, text_halign = text.align_left)
+    table.cell(tbl, 1, 3, lgTxt, text_color = tc, text_size = size.small, text_halign = text.align_left)
+    table.cell(tbl, 0, 4, "Anker", text_color = tc, text_size = size.small, text_halign = text.align_left)
+    table.cell(tbl, 1, 4, lgAnch, text_color = tc, text_size = size.small, text_halign = text.align_left)
+    table.cell(tbl, 0, 5, "Zeiten", text_color = tc, text_size = size.small, text_halign = text.align_left)
+    table.cell(tbl, 1, 5, lgTime, text_color = tc, text_size = size.small, text_halign = text.align_left)
+    table.cell(tbl, 0, 6, "Zähler", text_color = tc, text_size = size.small, text_halign = text.align_left)
+    table.cell(tbl, 1, 6, "bestätigt L/S " + str.tostring(cnt.get(2)) + "/" + str.tostring(cnt.get(3)) + " · ungültig " + str.tostring(cnt.get(4)) + " · abgelaufen " + str.tostring(cnt.get(5)) + " · Sweeps ohne gültiges A " + str.tostring(cnt.get(7)) + " · zusammengeführt " + str.tostring(cnt.get(9)) + " · Strukturfehler " + str.tostring(cnt.get(8)), text_color = tc, text_size = size.small, text_halign = text.align_left)
+    table.cell(tbl, 0, 7, "Hinweis", text_color = tc, text_size = size.small, text_halign = text.align_left)
+    table.cell(tbl, 1, 7, warn, text_color = tfOk ? tc : color.orange, text_size = size.small, text_halign = text.align_left)
+    table.cell(tbl, 0, 8, "Manuell", text_color = colManual, text_size = size.small, text_halign = text.align_left)
+    table.cell(tbl, 1, 8, manNote, text_color = tc, text_size = size.small, text_halign = text.align_left)
+
+// ───────────────────────────────────────── Datenfenster ─────────────────────────────────────────
+
+Leg dwL = cand.get(0)
+Leg dwS = cand.get(1)
+Leg dwG = lastLeg.get(0)
+plot(na(dwL) ? 0 : 1, "Long-Zustand (0 Suche, 1 Kandidat)", display = display.data_window)
+plot(na(dwS) ? 0 : 1, "Short-Zustand (0 Suche, 1 Kandidat)", display = display.data_window)
+plot(na(dwG) ? na : dwG.state, "Letztes Leg: Zustand (1 Kand., 2 best., 3 ungültig, 4 abgel.)", display = display.data_window)
+plot(na(dwG) ? na : dwG.dir, "Letztes Leg: Richtung (1 Long, -1 Short)", display = display.data_window)
+plot(na(dwG) ? na : dwG.lPrice, "Letztes Leg: L", display = display.data_window)
+plot(na(dwG) ? na : dwG.aPrice, "Letztes Leg: A (0)", display = display.data_window)
+plot(na(dwG) ? na : dwG.bPrice, "Letztes Leg: B (1)", display = display.data_window)
+plot(newSrc ? 1 : 0, "Neue Quellkerze verarbeitet", display = display.data_window)
+plot(ev.candLong or ev.candShort ? 1 : 0, "Ereignis: Sweep-Kandidat", display = display.data_window)
+plot(ev.confLong ? 1 : 0, "Ereignis: Long bestätigt", display = display.data_window)
+plot(ev.confShort ? 1 : 0, "Ereignis: Short bestätigt", display = display.data_window)
+plot(ev.hit ? 1 : 0, "Ereignis: Projektionslevel", display = display.data_window)
+plot(ev.invalid ? 1 : 0, "Ereignis: ungültig", display = display.data_window)
+
+// ───────────────────────────────────────── Alarme ─────────────────────────────────────────
+
+alertcondition(ev.candLong or ev.candShort, "1 · Sweep-Kandidat (VORLÄUFIG)", "VORLÄUFIG: neuer Sweep-Kandidat – noch keine Bestätigung ({{ticker}}, Chart {{interval}})")
+alertcondition(ev.confLong, "2 · Long-Szenario bestätigt", "Long-Szenario bestätigt: Manipulation abwärts, späterer Close über A – Projektionen oberhalb von A ({{ticker}})")
+alertcondition(ev.confShort, "3 · Short-Szenario bestätigt", "Short-Szenario bestätigt: Manipulation aufwärts, späterer Close unter A – Projektionen unterhalb von A ({{ticker}})")
+alertcondition(ev.hit, "4 · Projektionslevel nach Bestätigung erreicht", "Ein STDV-Projektionslevel wurde nach der Bestätigung erreicht ({{ticker}})")
+alertcondition(ev.invalid, "5 · Bestätigtes Leg ungültig", "Ein bestätigtes Manipulation Leg ist ungültig: B wurde um mindestens einen Tick gebrochen ({{ticker}})")
+
+if ev.msg != ""
+    alert(syminfo.ticker + " · Quelle " + srcTF + "m\n" + ev.msg, alert.freq_once_per_bar)

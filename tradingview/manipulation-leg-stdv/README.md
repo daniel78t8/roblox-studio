@@ -1,0 +1,296 @@
+# Manipulation Leg – Liquidity Sweep & STDV (Pine Script v6)
+
+Dateien:
+
+| Datei | Inhalt |
+|---|---|
+| `manipulation_leg_stdv.pine` | vollständiger Indikator, in den Pine Editor kopieren |
+| `tests/reference_model.py` | Python-Nachbildung der Zustandsmaschine (Funktion für Funktion wie im Pine-Code) |
+| `tests/test_scenarios.py` | Szenariotests: `cd tests && python3 -m unittest -v test_scenarios` |
+
+> **Stand der Prüfung:** Der Pine-Code wurde **nicht** in TradingView kompiliert und **nicht** im Bar Replay getestet.
+> Das war aus dieser Umgebung nicht möglich. Geprüft wurde: (a) die Logik über das Python-Referenzmodell (33 Szenariotests,
+> alle bestanden), (b) Syntax und API-Verwendung statisch gegen eine Kopie der Pine-v6-Dokumentation. Der direkte Zugriff auf
+> tradingview.com war gesperrt. Details stehen im Abschnitt „Prüfprotokoll“.
+
+---
+
+## 1. Logik in Kürze – und was gegenüber dem Video ergänzt ist
+
+### Was aus dem Video stammt
+
+* Ein Manipulation Leg ist eine **Fehlbewegung, die Liquidität abholt und danach entgegengesetzt dreht** (im Chart: Preis fällt,
+  nimmt Liquidität unter einem vorherigen Tief, dreht deutlich nach oben; danach schematisch beide Richtungen).
+* Die STDV-Messung wird auf **5m oder 15m** angelegt.
+* **Level 0 = Start** der Manipulationsbewegung (A), **Level 1 = Ende** der Bewegung (B). Die **negativen Level** liegen auf der
+  anderen Seite von 0, also **entgegen der Manipulationsrichtung**.
+* Sichtbare Level: 1, 0.5, 0, −1, −1.5, −2, −2.25, −2.5, −3.5, −4, −4.25, −4.5.
+
+### Was der Clip NICHT festlegt – technische Festlegungen dieses Skripts
+
+| Festlegung | Standard | Warum nötig |
+|---|---|---|
+| Swing-Pivots mit `leftBars`/`rightBars` | 3 / 3 (Beispielwerte, nicht optimiert, nicht aus dem Video) | „vorheriges Tief/Hoch“ und „Start der Bewegung“ müssen maschinell definiert werden |
+| Pivot erst nach `rightBars` **abgeschlossenen** Quellkerzen verwendbar | – | kein Zukunftswissen |
+| Gleichstandsregel Pivots: links strikt (`>`/`<`), rechts nicht strikt (`>=`/`<=`) | – | bei gleich hohen Kerzen im linken Fenster zählt nur die **erste**, damit ein Plateau genau einen Pivot ergibt |
+| Mindest-Sweep `epsilon = minSweepTicks × syminfo.mintick` | `minSweepTicks = 1` (min. 1) | eine bloße Berührung ist kein Sweep |
+| A = jüngstes passendes Gegen-Swing nach L, vor dem Sweep bekannt, zwischen A und Sweep-Kerze **nicht überschritten** | – | sonst wäre A nicht der Start der Bewegung |
+| Bestätigung: **spätere** abgeschlossene Quellkerze schließt jenseits von A | – | bewusst **streng und verzögert** – der Sprecher fordert den vollständigen Rücklauf über den Ursprung im Clip **nicht** ausdrücklich |
+| Frist `maxBarsToConfirm` | 20 Quellkerzen | ein Sweep ohne Umkehr soll nicht ewig „Kandidat“ bleiben |
+| Ungültigkeit nach Bestätigung: B um ≥ 1 Tick gebrochen | – | Struktur ist dann gescheitert; Anker werden **nicht** verschoben |
+| Treffer-Unterscheidung berührt / überschritten / Kurslücke | – | Gaps sollen nicht als „gehandelt“ erscheinen |
+| kein ATR-, Displacement-, OTE-, FVG-, SMT-, RSI- oder Session-Filter | – | im Clip keine Erkennungskriterien; bewusst **nicht** eingebaut |
+
+### Begriffe
+
+* **L** – bereits vorhandenes Liquiditätsniveau (bestätigtes Swing-Tief im Long-, Swing-Hoch im Short-Szenario)
+* **A** – Startpunkt des Manipulation Legs (Level 0)
+* **B** – Extrempunkt der Manipulation (Level 1)
+* **tSweep** – Sweep-Kerze: erste Quellkerze, die L um mindestens epsilon über- bzw. unterschreitet
+* **tConfirm** – Schlusszeit der Quellkerze, deren Close jenseits von A liegt (= ab hier ist die Bestätigung verfügbar)
+
+**Messstrecke ist A–B**, also die Bewegung **zum** Sweep. Die anschließende Gegenbewegung bestätigt nur und bestimmt die
+Projektionsrichtung. Sie wird nie selbst als Leg gemessen. Gemessen wird mit High/Low **inklusive Dochten**.
+
+### Richtungen – damit „Long“ nicht verwechselt wird
+
+| | Manipulation (A → B) | Sweep | Bestätigung | Projektion (negative Level) |
+|---|---|---|---|---|
+| **Long-Szenario** | **abwärts** (Hoch A → Tief B) | `low <= L − epsilon` unter ein Swing-Tief | späterer `close > A` | **oberhalb** von A |
+| **Short-Szenario** | **aufwärts** (Tief A → Hoch B) | `high >= L + epsilon` über ein Swing-Hoch | späterer `close < A` | **unterhalb** von A |
+
+Auf dem Chart stehen deshalb Texte wie „Long-Szenario (Manipulation ↓ · Projektion ↑)“.
+
+### Ablauf je abgeschlossener Quellkerze n
+
+1. **Bestätigte Legs prüfen** – Projektionstreffer (nur Kerzen nach der Bestätigungskerze), danach Ungültigkeit.
+2. **Laufende Kandidaten fortschreiben** – neues tieferes Tief (Long) bzw. höheres Hoch (Short) verschiebt B; dann
+   `close` jenseits von A → **bestätigt** (A und B eingefroren), sonst nach `maxBarsToConfirm` Kerzen → **abgelaufen**.
+3. **Neue Sweeps suchen** – alle aktiven, vor n bestätigten Niveaus, die um ≥ epsilon gebrochen wurden. Dazu das **jüngste
+   passende A** und davor das **jüngste noch aktive gesweepte L**. Ein Sweep erzeugt nur einen **Kandidaten**.
+4. **Neue Pivots registrieren** – Pivot an Kerze n − rightBars, ab Kerze n + 1 verwendbar.
+
+Zustände: **Suche** (kein laufender Kandidat in dieser Richtung) → **Kandidat** → **bestätigt** → ggf. **ungültig**, oder
+Kandidat → **abgelaufen**.
+
+Weitere Regeln:
+
+* **Pro Richtung höchstens ein laufender Kandidat** (strenger als „pro Richtung und Niveau“). Ein weiterer Sweep derselben
+  Richtung mit **demselben oder älterem A** erzeugt kein neues Ereignis; die zusätzlich gebrochenen Niveaus werden nur
+  verbraucht (Anzeige „L … (+n)“, Zähler „zusammengeführt“). Ein Sweep mit **jüngerem A** ersetzt den laufenden Kandidaten.
+  Der alte Kandidat wird dann „abgelaufen (ersetzt durch jüngere Struktur)“.
+* **Gesweepte Niveaus sind verbraucht**, auch wenn kein gültiges A existiert (Zähler „Sweeps ohne gültiges A“). Dadurch
+  entsteht für dasselbe Niveau nie ein zweites identisches Ereignis. Gleich tiefe/hohe Pivots, die dieselbe Kerze bricht,
+  ergeben **ein** Ereignis (das jüngste L vor A wird angezeigt, die übrigen als „+n“).
+* **Sweep und Rücklauf jenseits von A in derselben Kerze** → Kandidat, aber keine Bestätigung. Die Sweep-Kerze darf dafür
+  über A reichen. Bestätigen kann erst eine spätere Kerze. Eine Intrabar-Reihenfolge wird nicht angenommen.
+* **B** = tiefstes Low (Long) bzw. höchstes High (Short) zwischen A (exklusiv) und aktueller Kandidatenkerze; bei Gleichstand
+  bleibt das frühere. Das Low/High der Bestätigungskerze zählt noch mit, danach ist B eingefroren.
+* **Prüfungen gegen Fehlstrukturen:** zu wenig Historie (keine Pivots), A außerhalb des Puffers (Pivot verworfen),
+  A = B bzw. A nicht jenseits von B, falsche Ankerreihenfolge (`L < A < B ≤ Sweep`). Solche Fälle erzeugen kein Muster und
+  werden in der Statustabelle gezählt.
+
+### Exakte STDV-Berechnung
+
+```
+Preis(q) = A + q × (B − A)        → Preis(0) = A, Preis(1) = B, Preis(0.5) = Mitte des Legs
+```
+
+Es wird **keine statistische Standardabweichung** einer Kursreihe berechnet. Die negativen Level werden **von A aus**
+abgetragen. −1 liegt also eine volle Leglänge jenseits von A und **nicht** auf A.
+
+| q | Long A=100, B=90 | Short A=100, B=110 |
+|---|---|---|
+| 1 | 90 | 110 |
+| 0.5 | 95 | 105 |
+| 0 | 100 | 100 |
+| −1 | 110 | 90 |
+| −1.5 | 115 | 85 |
+| −2 | 120 | 80 |
+| −2.25 | 122.5 | 77.5 |
+| −2.5 | 125 | 75 |
+| −3.5 | 135 | 65 |
+| −4 | 140 | 60 |
+| −4.25 | 142.5 | 57.5 |
+| −4.5 | 145 | 55 |
+
+Der Indikator rechnet beide Beispiele bei aktivem „Formel-Selbsttest“ selbst nach und zeigt „OK“ oder „FEHLER“ in der
+Tabelle. Angezeigte Preise werden mit `format.mintick` auf die Tick-Genauigkeit des Symbols formatiert. Gerechnet wird
+ungerundet.
+
+Die Projektionen sind **Beobachtungsmarken**. Der Clip definiert keine garantierte Reaktion und keine verbindliche
+Take-Profit-Regel für einzelne Level.
+
+---
+
+## 2. Code
+
+Der vollständige, zusammenhängende Code steht in [`manipulation_leg_stdv.pine`](manipulation_leg_stdv.pine).
+
+Aufbau: Konstanten → Eingaben → Typen (`Pivot`, `Leg`, `Events`) → globale Puffer → Hilfsfunktionen → Zeichenfunktionen →
+Zustandsübergänge (`f_expire`, `f_confirm`, `f_invalidate`, `f_updateConfirmed`, `f_updateCandidate`, `f_detectSweep`,
+`f_detectPivots`) → Quelldaten (`request.security`) → Verarbeitung → manueller Modus → Tabelle → Datenfenster → Alarme.
+
+Long und Short laufen durch **dieselbe** Engine. Für das Short-Szenario werden die Preise intern gespiegelt
+(`lowD = −high`, `highD = −low`, Anker × −1). Dadurch gelten exakt dieselben Ungleichungen für beide Seiten, und keine Seite
+kann versehentlich anders behandelt werden. Gespeichert und gezeichnet werden immer echte Preise.
+
+---
+
+## 3. Einstellungen und Bestätigungsverzögerung
+
+### Gruppe 1 · Quelle
+* **Analyse-Zeitrahmen** `5` (Standard) oder `15`: Alle Pivots, Sweeps, Anker und Bestätigungen stammen ausschließlich aus
+  abgeschlossenen Kerzen dieses Zeitrahmens. Auf einem kleineren Chart (1m, 3m, Sekunden) entstehen dadurch **keine**
+  zusätzlichen Muster. Ist der Chart-Zeitrahmen **größer** als die Quelle, rechnet das Skript nicht und zeigt eine Meldung.
+
+### Gruppe 2 · Erkennung (technische Ergänzung)
+| Einstellung | Standard | Wirkung |
+|---|---|---|
+| Pivot leftBars / rightBars | 3 / 3 | Fenstergröße der Swing-Erkennung. Größere Werte → weniger, größere Swings und mehr Verzögerung bis zur Verwendbarkeit (= rightBars Quellkerzen) |
+| minSweepTicks | 1 | Mindestüberschreitung von L in Ticks |
+| maxBarsToConfirm | 20 | Frist (in Quellkerzen nach der Sweep-Kerze) bis zum Ablauf |
+| Rückblick-Puffer | 1000 | gespeicherte Quellkerzen. Ältere Pivots werden verworfen und sind dann weder L noch A |
+| Max. Pivots je Seite | 100 | Speichergrenze, älteste fallen heraus |
+
+### Gruppe 3 · Darstellung
+Kandidaten gestrichelt (abschaltbar), bestätigte Legs durchgezogen; abgelaufene Kandidaten optional grau stehen lassen;
+Historie der letzten **10** bestätigten Legs; STDV-Projektionen für die jüngsten **3** Legs (Linien mit Level und Preis am
+rechten Ende); optionale Rauten an den Erkennungszeitpunkten von A und L; Statustabelle; Farben für Long, Short,
+ungültig/abgelaufen und manuell; Label-Größe.
+
+### Gruppe 4 · STDV-Level
+Jedes der zwölf Level einzeln abschaltbar. Abgeschaltete Level werden weder gezeichnet noch für Trefferalarme geprüft.
+
+### Gruppe 5 · Manueller Kontrollmodus
+A (Zeit + Preis) und B (Zeit + Preis) stehen jeweils auf einer gemeinsamen Zeile (`inline = "mA"` / `"mB"`).
+Projektionsformel identisch. Beschriftung „manuell“, eigene Farbe, keine Bestätigungsmarke, keine Alarme. Ein manuelles Leg
+gilt **nicht** als algorithmisch bestätigt. Richtung: B < A → Long-Szenario, B > A → Short-Szenario. A = B oder A zeitlich
+nach B → Hinweis in der Tabelle statt Zeichnung.
+Interaktive Punktwahl per Klick: im Code `MANUAL_PICK_ON_CHART = true` setzen. Dann fragt TradingView beim Hinzufügen
+des Indikators nach den Punkten A und B (`confirm = true`; Zeit und Preis werden über dieselbe `inline`-Kennung zu einem
+Klick verbunden). Standardmäßig ist das aus, damit beim normalen Hinzufügen keine Klicks erzwungen werden.
+
+### Gruppe 6 · Meldungen über alert()
+Schalter für die fünf Ereignisarten (+ optional „abgelaufen“). Daneben gibt es fünf feste `alertcondition()`-Einträge:
+
+| Alarm | Bedingung |
+|---|---|
+| 1 · Sweep-Kandidat (VORLÄUFIG) | neuer Kandidat, ausdrücklich noch nicht bestätigt |
+| 2 · Long-Szenario bestätigt | späterer Close über A |
+| 3 · Short-Szenario bestätigt | späterer Close unter A |
+| 4 · Projektionslevel nach Bestätigung erreicht | erstes Erreichen eines negativen Levels nach der Bestätigungskerze |
+| 5 · Bestätigtes Leg ungültig | B um ≥ 1 Tick gebrochen |
+
+Empfehlung: Alarm mit **„Any alert() function call“** anlegen (detaillierte Meldung mit Ankern, Zeiten und Leveln) oder
+einen der `alertcondition()`-Einträge mit Häufigkeit **„Einmal pro Balken“**.
+
+### Bestätigungsverzögerung – wann ist was verfügbar?
+
+| Ereignis | Zeitpunkt im Chart (5m-Quelle) |
+|---|---|
+| Pivot (A oder L) **liegt** an | seiner Pivot-Kerze (Label sitzt dort) |
+| Pivot ist **erkennbar** | Schluss der Kerze `Pivot + rightBars` (Standard: 3 × 5 min = 15 min später) |
+| Sweep | passiert innerhalb der Sweep-Kerze, ausgewertet bei deren **Schluss** |
+| Bestätigung | Schluss einer **späteren** Kerze mit Close jenseits von A, frühestens 1 Quellkerze nach dem Sweep |
+
+Technisch liest das Skript per
+`request.security(syminfo.tickerid, srcTF, [open[1], high[1], low[1], close[1], time[1], time_close[1]], lookahead = barmerge.lookahead_on)`
+auf jeder Chartkerze die **zuletzt vollständig geschlossene** Quellkerze. Mit `[1]` und `lookahead_on` ist das historisch und
+in Echtzeit gleich und enthält keine Zukunftsdaten. Jede neue Quellkerze wird anhand ihrer Öffnungszeit genau **einmal**
+übernommen. Deshalb erscheint ein Ereignis auf der **ersten Chartkerze nach Schluss** der auslösenden Quellkerze:
+
+* Chart = Quelle (5m auf 5m): auf der folgenden Kerze, also zum Zeitpunkt `time_close` der auslösenden Kerze.
+* Chart kleiner (1m bei 5m-Quelle): auf der ersten 1m-Kerze der nächsten 5m-Periode.
+
+Die grüne/rote Marke „✓ Long/Short bestätigt“ sitzt genau dort. A, B, L und die Sweep-Marke (×) sitzen dagegen an ihren
+tatsächlichen Quellkerzen (nachträglich markiert). Ein Bestätigungsalarm kann deshalb nie rückwirkend auf der Sweep-Kerze
+erscheinen. `barstate.isconfirmed` wird dafür nicht benutzt.
+
+In Echtzeit läuft das Skript auf jeder Preisänderung erneut. Durch den Pine-Rollback wiederholt sich die Verarbeitung der
+neuen Quellkerze auf jedem Tick derselben Chartkerze identisch, und `alert.freq_once_per_bar` meldet sie nur einmal.
+
+---
+
+## 4. A, B und L am Chart überprüfen
+
+1. Chart auf den Analyse-Zeitrahmen stellen (z. B. 5m), damit jede Quellkerze eine Chartkerze ist.
+2. **L**: Label „L · Liquidität“ am Swing-Tief (Long) bzw. Swing-Hoch (Short). Prüfen: Die `leftBars` Kerzen links haben
+   ein höheres Low (Long), die `rightBars` Kerzen rechts kein tieferes. Der Tooltip nennt Pivot-Kerze und „erkennbar ab“.
+3. **A**: Label „A · Start / 0“. Es liegt **zeitlich nach L** und **über L** (Long). Zwischen A und der Sweep-Kerze hat
+   kein High A überschritten. A war schon vor der Sweep-Kerze erkennbar (Tooltip „erkennbar ab“ < Sweep-Kerze; mit
+   „Erkennungszeitpunkte markieren“ als Raute sichtbar).
+4. **Sweep (×)**: auf der L-Linie an der ersten Kerze, deren Low mindestens `minSweepTicks` Ticks unter L liegt. Eine Kerze,
+   die L nur berührt, darf kein × haben.
+5. **B**: Label „B · Sweep-Extrem / 1“ am tiefsten Low zwischen A und der Bestätigung. Im Fadenkreuz/Datenfenster das Low
+   dieser Kerze ablesen. Es muss mit dem Labelpreis übereinstimmen.
+6. **Bestätigung**: Die Marke „✓ … bestätigt“ sitzt auf der Kerze **nach** der ersten Kerze, deren Close über A (Long) liegt.
+   Die Kerze davor ist die Bestätigungskerze; ihr Close muss > A sein.
+7. **Projektionen**: −1 muss bei `A + (A − B)` liegen (Long), −2 bei `A + 2 × (A − B)` usw. Ein Treffer zeigt „berührt ✓“,
+   „überschritten ✓“ oder „per Kurslücke übersprungen ✓“. „vor Bestätigung erreicht“ bedeutet: kein Alarm.
+8. **Datenfenster** (Strg+D / Datenfenster-Panel): Zeilen „Letztes Leg: L / A / B / Zustand“, „Long-/Short-Zustand“ und
+   „Ereignis: …“ zeigen pro Kerze die Werte, die das Skript wirklich verwendet. „Neue Quellkerze verarbeitet = 1“ markiert
+   jede Chartkerze, auf der eine Quellkerze übernommen wurde. Auf einem 1m-Chart darf das höchstens einmal je 5 Minuten
+   passieren.
+9. **Gegenprobe manuell**: Manuellen Modus aktivieren, A und B per Zeit/Preis auf dieselben Kerzen legen. Die orangen
+   Projektionen müssen exakt auf den automatischen liegen.
+10. **Bar Replay**: Replay vor einem Muster starten und Kerze für Kerze vorgehen. Der Kandidat erscheint erst nach Schluss der
+    Sweep-Kerze. B darf bis zur Bestätigung wandern, danach nicht mehr. Bestätigte Legs dürfen sich beim weiteren Abspielen
+    nicht verschieben, nur „ungültig“ werden.
+
+---
+
+## 5. Grenzen der automatischen Interpretation
+
+* Der Clip definiert keine Pivot-Länge, keine Sweep-Mindestgröße, kein numerisches Displacement und keine
+  Kerzenschluss-Bestätigung. Alle diese Regeln sind **Programmierannahmen**. Ein diskretionärer Trader kann dasselbe Bild
+  anders lesen.
+* „Liquidität“ wird nur als **bestätigtes Swing-Hoch/-Tief** modelliert. Session-Hochs/-Tiefs, Equal Highs über mehrere
+  Fenster, runde Zahlen oder Orderbuch-Liquidität werden nicht erkannt.
+* Die Bestätigung per Close über/unter A ist **streng und spät**. Viele Bewegungen, die ein Trader schon früher als Umkehr
+  erkennt, werden erst spät oder gar nicht bestätigt. Gleichzeitig ist ein Close jenseits von A **kein** Beleg für eine
+  Fortsetzung.
+* Innerhalb einer OHLC-Kerze ist die Reihenfolge von High und Low unbekannt. Deshalb bestätigt die Sweep-Kerze nie selbst.
+  Bei einer Kerze, die sowohl ein Projektionslevel erreicht als auch B bricht, werden beide Ereignisse gemeldet, ohne
+  Reihenfolge.
+* Die Marken für A, B und L sitzen auf einem kleineren Chart an der **Öffnungszeit** der Quellkerze, nicht an der genauen
+  Unterkerze, in der das Extrem entstand.
+* Am rechten Rand gilt: Die letzte geschlossene Quellkerze wird erst ausgewertet, wenn die nächste Kerze beginnt. Bei
+  geschlossenem Markt (Wochenende, nach Handelsschluss) erscheint ein Ereignis der letzten Kerze daher erst zur nächsten
+  Sitzung.
+* Pivots älter als der Rückblick-Puffer werden verworfen. Sehr alte Niveaus werden daher nicht mehr als L erkannt.
+* Bei Symbolen mit Kursen außerhalb des Tick-Rasters (z. B. dividendenbereinigte Daten) gelten die Tick-Schwellen nur
+  näherungsweise.
+* Auf Nicht-Standard-Charts (Heikin Ashi, Renko …) liefert `syminfo.tickerid` die Werte dieses Charttyps. Für echte OHLC
+  einen Standard-Kerzenchart verwenden.
+* Projektionen sind Beobachtungsmarken, keine Handelsregeln. Kein ATR-/Displacement-Filter. Ein solcher Filter wäre eine
+  eigene Erweiterung und ist hier bewusst nicht eingebaut.
+
+---
+
+## Prüfprotokoll
+
+**Tatsächlich durchgeführt**
+
+* Python-Referenzmodell (`tests/reference_model.py`) der Pine-Logik inklusive Simulation von
+  `request.security(…[1], lookahead_on)` für 5m-auf-5m, 5m-auf-1m und 15m-auf-5m. 33 Tests, alle bestanden:
+  * beide Rechenbeispiele (Long A=100/B=90, Short A=100/B=110), −1 ≠ A
+  * Long- und Short-Basisszenario: Kandidat auf der Sweep-Kerze, Docht über A ohne Bestätigung, Bestätigung erst bei
+    späterem Close, Treffer „berührt“ (−1), „überschritten“ (−1.5), „Kurslücke“ (−2), Rücklauf genau auf B ohne
+    Ungültigkeit, Ungültigkeit bei 1 Tick jenseits von B mit unveränderten Ankern; Long/Short exakt spiegelbildlich
+  * Berührung ohne Sweep, `minSweepTicks` = 1 und 2
+  * Sweep ohne Umkehr → abgelaufen nach genau `maxBarsToConfirm` Kerzen
+  * neues Extrem vor der Bestätigung verschiebt B, nach der Bestätigung nicht
+  * Sweep und Rücklauf in derselben Kerze → Bestätigung erst auf der Folgekerze
+  * vor der Bestätigung erreichtes Level → nie ein Trefferalarm
+  * gleich tiefe Pivots → ein Ereignis; jüngere Struktur ersetzt laufenden Kandidaten
+  * fehlende Historie
+  * 1m-Chart: identische Ereignisse wie auf 5m, jedes genau einmal, jeweils auf der ersten Chartkerze nach Schluss der
+    Quellkerze; 15m-Quelle auf 5m-Chart identisch zu 15m-Chart
+  * Replay-Stabilität: Für jeden früheren Datenstand sind die Ereignisse identisch zur vollen Historie bis dahin
+* Statischer Abgleich von Syntax und API mit der Pine-v6-Referenz (gespiegelte Kopie, siehe oben).
+
+**Nicht durchgeführt**
+
+* Kompilierung im TradingView Pine Editor, Bar Replay, Echtzeit-Alarme. Bitte nach dem Einfügen „Zum Chart hinzufügen“ und
+  die Punkte aus Abschnitt 4 einmal im Replay durchgehen.
