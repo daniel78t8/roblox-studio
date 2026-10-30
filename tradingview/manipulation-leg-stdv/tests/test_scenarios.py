@@ -4,10 +4,11 @@ Die Tests prüfen die Regeln aus der Aufgabenstellung am Python-Modell der Pine-
 Sie ersetzen weder die Kompilierung in TradingView noch einen Bar-Replay-Test.
 """
 
+import random
 import unittest
 
-from reference_model import (DIR_LONG, DIR_SHORT, HIT_EXCEED, HIT_GAP, HIT_PRE, HIT_TOUCH, LEVELS,
-                             f_level, make_src_bars, run_on_chart, split_to_lower)
+from reference_model import (DIR_LONG, DIR_SHORT, HIT_EXCEED, HIT_GAP, HIT_NONE, HIT_PRE, HIT_TOUCH, LEVELS,
+                             ST_INVALID, f_level, make_src_bars, run_on_chart, split_to_lower)
 
 # Basisszenario Long (Quellzeitrahmen 5m, mintick 0.01): L = 91.00 (#5), A = 100.00 (#10),
 # Sweep #16 (Low 90.00), Docht über A ohne Close darüber (#19), Bestätigung #20,
@@ -319,6 +320,136 @@ class TimeframeTests(unittest.TestCase):
         a, _ = run1(BASE_LONG)
         b, _ = run1(BASE_LONG)
         self.assertEqual([sig(e) for e in a.events], [sig(e) for e in b.events])
+
+
+def walk(n, seed, tick=0.25, start=1000.0):
+    """Zufallspfad auf dem Tick-Raster mit gelegentlichen Kurslücken."""
+    rnd = random.Random(seed)
+    rows, c = [], start
+    for _ in range(n):
+        o = c + (rnd.choice([-8, 8]) * tick if rnd.random() < 0.03 else 0.0)
+        c = o + rnd.randint(-12, 12) * tick
+        h = max(o, c) + rnd.randint(0, 6) * tick
+        l = min(o, c) - rnd.randint(0, 6) * tick
+        rows.append((round(o, 2), round(h, 2), round(l, 2), round(c, 2)))
+    return rows
+
+
+class RegressionTests(unittest.TestCase):
+    # Befunde der Gegenprüfung, die vor der Korrektur im Modell UND im Pine-Code auftraten.
+
+    OUTSIDE_CONFIRM = [
+        (92.0, 92.5, 91.5, 92.0), (92.0, 92.2, 90.0, 90.2), (90.2, 90.4, 89.0, 89.2),
+        (89.2, 89.4, 88.0, 88.5),          # tieferes Swing-Tief 88.00
+        (88.5, 92.0, 88.4, 91.8), (91.8, 95.0, 91.5, 94.8), (94.8, 97.0, 94.5, 96.8),
+    ] + BASE_LONG[:19] + [
+        (97.5, 99.5, 97.0, 99.0),
+        (99.0, 101.0, 87.5, 100.5),        # bestätigt (Close > A) UND sweept 88.00
+        (100.5, 102.0, 100.2, 101.5),
+        (101.5, 102.0, 101.0, 101.5),
+    ]
+
+    def test_confirmation_bar_that_sweeps_deeper_level_is_not_confirmed_twice(self):
+        for rows, d in ((self.OUTSIDE_CONFIRM, DIR_LONG), (mirror(self.OUTSIDE_CONFIRM), DIR_SHORT)):
+            eng, _ = run5(rows)
+            self.assertEqual(len(evs(eng, "CONF", d)), 1)
+            self.assertEqual(len(evs(eng, "CAND", d)), 1)
+            # zusammengeführt: 88.00 und das inzwischen bestätigte Swing-Tief 90.00 der Sweep-Kerze #23
+            self.assertEqual(eng.confLegs[0].extraLevels, 2)
+            self.assertEqual(len({(g.aIdx, g.bIdx) for g in eng.confLegs if g.dir == d}), 1)
+
+    OUTSIDE_BOTH = [
+        (100, 100.5, 99.5, 100), (100, 101, 99.8, 100.8), (100.8, 102, 100.5, 101.8),
+        (101.8, 105, 101.5, 104),          # 3 Swing-Hoch 105 (Short-L)
+        (104, 104.5, 102, 102.5), (102.5, 103, 100, 100.5), (100.5, 101, 98, 98.5),
+        (98.5, 99, 95, 95.5),              # 7 Swing-Tief 95 (Short-A)
+        (95.5, 97, 95.5, 96.8), (96.8, 98, 96.5, 97.5), (97.5, 99, 97, 98.5), (98.5, 100, 98, 99.5),
+        (99.5, 105.5, 94.5, 100),          # 12 Außenkerze: sweept 105 und unterschreitet 95
+        (100, 100.5, 99, 99.2),
+        (99.2, 99.5, 94.0, 94.2),          # 14 Close < 95 → Short bestätigt
+        (94.2, 94.5, 93.5, 94),
+    ]
+
+    def test_result_does_not_depend_on_long_short_processing_order(self):
+        eng, _ = run5(self.OUTSIDE_BOTH)
+        conf = evs(eng, "CONF", DIR_SHORT)
+        self.assertEqual([(e.srcIdx, e.l, e.a, e.b) for e in conf], [(14, 105, 95, 105.5)])
+        mir, _ = run5(mirror(self.OUTSIDE_BOTH))
+        self.assertEqual([(e.kind, e.srcIdx) for e in eng.events], [(e.kind, e.srcIdx) for e in mir.events])
+
+    def test_pivot_window_larger_than_buffer_setting(self):
+        rows = walk(1500, 3)
+        eng, _ = run5(rows, leftBars=50, rightBars=50, bufferSize=100)
+        self.assertGreater(len(eng.pivHi) + len(eng.pivLo) + len(eng.events), 0)
+
+
+class PropertyTests(unittest.TestCase):
+    """Eigenschaften auf Zufallspfaden (Tick 0.25, verschiedene Pivot-Längen)."""
+
+    SEEDS = range(40)
+
+    def runs(self):
+        for seed in self.SEEDS:
+            rnd = random.Random(seed)
+            kw = dict(leftBars=rnd.randint(1, 5), rightBars=rnd.randint(1, 5), mintick=0.25,
+                      maxBarsToConfirm=rnd.choice([5, 20]), bufferSize=300, maxPivots=50)
+            rows = walk(1200, seed)
+            yield seed, rows, kw
+
+    def test_mirror_symmetry(self):
+        for seed, rows, kw in self.runs():
+            a, _ = run5(rows, **kw)
+            b, _ = run5(mirror(rows, 4000.0), **kw)
+            ka = sorted((e.kind, e.dir, e.srcIdx, e.a, e.b) for e in a.events)
+            kb = sorted((e.kind, -e.dir, e.srcIdx, round(4000.0 - e.a, 2), round(4000.0 - e.b, 2)) for e in b.events)
+            self.assertEqual(ka, kb, f"seed {seed}")
+
+    def test_lower_timeframe_chart_identical(self):
+        for seed, rows, kw in list(self.runs())[:10]:
+            a, _ = run5(rows, **kw)
+            b, _ = run1(rows, **kw)
+            self.assertEqual([sig(e) for e in a.events], [sig(e) for e in b.events], f"seed {seed}")
+
+    def test_invalidation_and_hits_reported_on_first_qualifying_bar(self):
+        tick = 0.25
+        for seed, rows, kw in self.runs():
+            eng, _ = run5(rows, **kw)
+            last = len(rows) - 2                       # letzte ausgewertete Quellkerze
+            for g in eng.confLegs:
+                d = g.dir
+                bD = d * g.bPrice
+                lowD = lambda r: r[2] if d == DIR_LONG else -r[1]
+                highD = lambda r: r[1] if d == DIR_LONG else -r[2]
+                first_break = next((j for j in range(g.confIdx + 1, last + 1) if lowD(rows[j]) <= bD - tick + 1e-9), None)
+                if first_break is None:
+                    self.assertNotEqual(g.state, ST_INVALID)
+                else:
+                    self.assertEqual((g.state, g.endIdx), (ST_INVALID, first_break), f"seed {seed}")
+                end = first_break if first_break is not None else last
+                aD = d * g.aPrice
+                for i, q in enumerate(LEVELS):
+                    if q >= 0:
+                        continue
+                    pD = aD + q * (bD - aD)
+                    pre = any(highD(rows[j]) >= pD - 1e-9 for j in range(g.sweepIdx, g.confIdx + 1))
+                    hit = next((j for j in range(g.confIdx + 1, end + 1) if highD(rows[j]) >= pD - 1e-9), None)
+                    if pre:
+                        self.assertEqual(g.hitState[i], HIT_PRE, f"seed {seed}")
+                    elif hit is None:
+                        self.assertEqual(g.hitState[i], HIT_NONE, f"seed {seed}")
+                    else:
+                        reported = [e.srcIdx for e in eng.events if e.kind == "HIT" and e.dir == d and e.a == g.aPrice
+                                    and e.b == g.bPrice and any(x[0] == q for x in e.detail["hits"])]
+                        self.assertIn(hit, reported, f"seed {seed}")
+            # jedes Ereignis genau einmal
+            sigs = [sig(e) for e in eng.events]
+            self.assertEqual(len(sigs), len(set(sigs)), f"seed {seed}")
+
+    def test_no_two_legs_share_both_anchors(self):
+        for seed, rows, kw in self.runs():
+            eng, _ = run5(rows, **kw)
+            keys = [(g.dir, g.aIdx, g.bIdx) for g in eng.confLegs]
+            self.assertEqual(len(keys), len(set(keys)), f"seed {seed}")
 
 
 if __name__ == "__main__":

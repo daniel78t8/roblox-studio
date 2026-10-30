@@ -85,6 +85,8 @@ class Engine:
         self.rightBars = rightBars
         self.maxBarsToConfirm = maxBarsToConfirm
         self.bufferSize = bufferSize
+        self.BUF_CAP = max(bufferSize, leftBars + rightBars + 2)
+        self.MAX_LIVE = 200
         self.maxPivots = maxPivots
         self.TICK = mintick
         self.TOL = mintick * 0.01
@@ -96,7 +98,9 @@ class Engine:
         self.pivHi = []
         self.pivLo = []
         self.cand = [None, None]
-        self.confLegs = []
+        self.confLegs = []      # alle bestätigten Legs (Pine zeichnet davon nur die letzten maxLegs)
+        self.liveLegs = []      # überwachte, noch gültige Legs (wie Pine liveLegs)
+        self.lastConf = [None, None]
         self.events = []
         self.cnt = [0] * 10
         self._chartT = None
@@ -144,6 +148,10 @@ class Engine:
                 pD = aD + q * (bD - aD)
                 if g.extremeD >= pD - self.TOL:
                     g.hitState[i] = HIT_PRE
+        self.liveLegs.append(g)
+        if len(self.liveLegs) > self.MAX_LIVE:
+            self.liveLegs.pop(0)
+        self.lastConf[self.f_slot(d)] = g
         self.confLegs.append(g)
         self.cnt[2 if d == DIR_LONG else 3] += 1
         self.emit("CONF", g, n, pre=[LEVELS[i] for i, s in enumerate(g.hitState) if s == HIT_PRE])
@@ -197,7 +205,7 @@ class Engine:
         lowN = self.f_lowD(n, d)
         swept = [i for i, p in enumerate(liq) if p.knownIdx < n and lowN <= d * p.price - self.EPS + self.TOL]
         if not swept:
-            return
+            return swept
         selA = selL = None
         runMax = None
         scan = n - 1
@@ -220,10 +228,15 @@ class Engine:
         nSwept = len(swept)
         run = self.cand[self.f_slot(d)]
         running = run is not None and run.state == ST_CANDIDATE
+        lc = self.lastConf[self.f_slot(d)]
+        justConf = lc is not None and lc.confIdx == n
         if selA is None:
             self.cnt[7] += 1
         elif running and selA.idx <= run.aIdx:
             run.extraLevels += nSwept
+            self.cnt[9] += 1
+        elif justConf and selA.idx <= lc.aIdx:
+            lc.extraLevels += nSwept
             self.cnt[9] += 1
         else:
             bD = None
@@ -247,8 +260,7 @@ class Engine:
                 self.cand[self.f_slot(d)] = g
                 self.cnt[0 if d == DIR_LONG else 1] += 1
                 self.emit("CAND", g, n)
-        for s in range(len(swept) - 1, -1, -1):
-            del liq[swept[s]]
+        return swept
 
     def f_detectPivots(self, n):
         p = n - self.rightBars
@@ -283,7 +295,7 @@ class Engine:
         self.lastSrcT = src.t
         self.buf.append(src)
         self.srcCount += 1
-        if len(self.buf) > self.bufferSize:
+        if len(self.buf) > self.BUF_CAP:
             self.buf.pop(0)
             first = self.f_first()
             while self.pivHi and self.pivHi[0].idx < first:
@@ -291,12 +303,17 @@ class Engine:
             while self.pivLo and self.pivLo[0].idx < first:
                 self.pivLo.pop(0)
         n = self.srcCount - 1
-        for g in self.confLegs:
+        for g in self.liveLegs:
             self.f_updateConfirmed(g, n)
+        self.liveLegs = [g for g in self.liveLegs if g.state == ST_CONFIRMED]
         self.f_updateCandidate(self.cand[0], n)
         self.f_updateCandidate(self.cand[1], n)
-        self.f_detectSweep(n, DIR_LONG)
-        self.f_detectSweep(n, DIR_SHORT)
+        swL = self.f_detectSweep(n, DIR_LONG)
+        swS = self.f_detectSweep(n, DIR_SHORT)
+        for s in reversed(swL):     # erst nach beiden Richtungen verbrauchen
+            del self.pivLo[s]
+        for s in reversed(swS):
+            del self.pivHi[s]
         self.f_detectPivots(n)
         return True
 
