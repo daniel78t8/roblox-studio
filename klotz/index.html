@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#121212">
+  <meta name="description" content="Klotz – das minimalistische Physik-Puzzle: Zerstöre die Formen und bring den roten Klotz sicher auf den grünen Boden.">
+  <title>Klotz – Physik-Puzzle</title>
+  <link rel="stylesheet" href="css/style.css">
+
+  <!--
+    ======================  GOOGLE ADS EINBINDEN (Produktion)  ======================
+    1) Diesen Block einkommentieren und ca-pub-XXXXXXXXXXXXXXXX durch deine
+       Publisher-ID ersetzen. data-adbreak-test="on" zeigt Testanzeigen –
+       vor dem Livegang entfernen. data-ad-frequency-hint = Mindestabstand
+       zwischen zwei Interstitials.
+
+    <script async
+            data-ad-client="ca-pub-XXXXXXXXXXXXXXXX"
+            data-adbreak-test="on"
+            data-ad-frequency-hint="45s"
+            src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"
+            crossorigin="anonymous"></script>
+    <script>
+      window.adsbygoogle = window.adsbygoogle || [];
+      var adBreak = adConfig = function (o) { adsbygoogle.push(o); };
+      adConfig({ preloadAdBreaks: 'on', sound: 'on' });
+    </script>
+
+    2) Interstitial + Rewarded: Funktionen in js/ads.js auf adBreak() umstellen
+       (fertiger Code steht dort im Kopfkommentar).
+    3) Sticky-Banner: Platzhalter in #adBanner durch das <ins>-Tag ersetzen.
+    ================================================================================
+  -->
+
+  <script defer src="js/physics.js"></script>
+  <script defer src="js/levels.js"></script>
+  <script defer src="js/core.js"></script>
+  <script defer src="js/ads.js"></script>
+  <script defer src="js/game.js"></script>
+</head>
+<body>
+  <div id="app" class="app">
+
+    <!-- Spielmenü -->
+    <header class="topbar">
+      <div class="brand" aria-hidden="true">KLOTZ</div>
+      <div class="level-pill" aria-live="polite">
+        <span class="level-pill__label">LEVEL</span>
+        <span id="levelNumber" class="level-pill__value">1</span>
+      </div>
+      <nav class="menu" aria-label="Spielmenü">
+        <!-- C: Rewarded-Ad-Button (Glühbirne) -->
+        <button id="btnHint" class="menu-btn menu-btn--hint" type="button" aria-label="Hinweis freischalten" aria-pressed="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.6 10.8c.6.5 1 1.2 1.1 2l.1.7h4.8l.1-.7c.1-.8.5-1.5 1.1-2A6 6 0 0 0 12 3z"/>
+          </svg>
+          <span class="menu-btn__label">Hinweis</span>
+          <span class="menu-btn__tag" aria-hidden="true">▶</span>
+        </button>
+        <button id="btnRestart" class="menu-btn" type="button" aria-label="Level neu starten" title="Level neu starten">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 12a8 8 0 1 0 2.4-5.7M4 4v4.5h4.5"/>
+          </svg>
+        </button>
+      </nav>
+    </header>
+
+    <!-- Spielfeld -->
+    <main id="stage" class="stage">
+      <canvas id="game" aria-label="Spielfeld: Tippe auf die türkisen Formen, um sie zu zerstören"></canvas>
+      <div id="levelTip" class="level-tip" aria-live="polite"></div>
+      <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+      <section id="startScreen" class="screen is-visible" aria-labelledby="startTitle">
+        <div class="screen__card">
+          <h1 id="startTitle" class="logo">KLOTZ</h1>
+          <p class="screen__lead">Zerstöre die Formen – und bring den roten Klotz sicher auf den grünen Boden.</p>
+          <ul class="legend">
+            <li><i class="swatch swatch--klotz"></i><span><b>Klotz</b> – unzerstörbar, darf nicht aus dem Bild fallen</span></li>
+            <li><i class="swatch swatch--shape"></i><span><b>Formen</b> – antippen zum Zerstören</span></li>
+            <li><i class="swatch swatch--goal"></i><span><b>Ziel</b> – hier muss der Klotz landen</span></li>
+          </ul>
+          <button id="btnPlay" class="btn btn--primary" type="button">SPIELEN</button>
+          <button id="btnReset" class="link-btn" type="button" hidden>Fortschritt zurücksetzen</button>
+        </div>
+      </section>
+
+      <section id="winScreen" class="screen" aria-labelledby="winTitle">
+        <div class="screen__card">
+          <p class="screen__kicker">LEVEL <span id="winLevel">1</span></p>
+          <h2 id="winTitle" class="screen__title screen__title--win">GESCHAFFT!</h2>
+          <p id="winStats" class="screen__stats"></p>
+          <p id="winNote" class="screen__text"></p>
+          <button id="btnNext" class="btn btn--primary" type="button">WEITER ▶</button>
+        </div>
+      </section>
+
+      <section id="failScreen" class="screen" aria-labelledby="failTitle">
+        <div class="screen__card">
+          <h2 id="failTitle" class="screen__title screen__title--fail">KLOTZ VERLOREN</h2>
+          <p id="failText" class="screen__text"></p>
+          <button id="btnFailHint" class="btn btn--hint" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.6 10.8c.6.5 1 1.2 1.1 2l.1.7h4.8l.1-.7c.1-.8.5-1.5 1.1-2A6 6 0 0 0 12 3z"/>
+            </svg>
+            LÖSUNG ZEIGEN <span class="btn__tag">▶ VIDEO</span>
+          </button>
+          <button id="btnRetry" class="btn btn--primary" type="button">NOCHMAL</button>
+        </div>
+      </section>
+    </main>
+
+    <!-- A: Sticky-Banner (320x50 mobil / 728x90 Desktop) – mit Abstand zum Spielfeld,
+         damit keine versehentlichen Klicks entstehen (AdSense-Richtlinie). -->
+    <footer id="adBanner" class="ad-banner" aria-label="Anzeige">
+      <span class="ad-banner__label">Anzeige</span>
+      <div class="ad-slot ad-slot--banner">
+        <!--
+          Hier das AdSense-Banner einsetzen, z. B.:
+          <ins class="adsbygoogle" style="display:inline-block;width:320px;height:50px"
+               data-ad-client="ca-pub-XXXXXXXXXXXXXXXX" data-ad-slot="1234567890"></ins>
+          <script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
+          (Für Desktop ein zweites <ins> mit 728x90 – oder ein responsives Anzeigenformat.)
+        -->
+        <strong>HIER ADSENSE EINBINDEN</strong>
+        <small class="only-mobile">Sticky-Banner · 320 × 50</small>
+        <small class="only-desktop">Sticky-Banner · 728 × 90</small>
+      </div>
+    </footer>
+  </div>
+
+  <!-- B: Interstitial (simuliert) -->
+  <div id="adInterstitial" class="ad-overlay" role="dialog" aria-modal="true" aria-label="Anzeige" hidden>
+    <div class="ad-overlay__top">
+      <span class="ad-overlay__tag">Anzeige</span>
+      <button id="adInterstitialClose" class="ad-close" type="button" disabled>
+        Schließen (X) <span id="adInterstitialCountdown" class="ad-close__count">3</span>
+      </button>
+    </div>
+    <div class="ad-slot ad-slot--fullscreen">
+      <strong>HIER ADSENSE EINBINDEN</strong>
+      <small>Interstitial · Vollbild-Anzeige</small>
+    </div>
+  </div>
+
+  <!-- C: Rewarded Video (simuliert) -->
+  <div id="adRewarded" class="ad-overlay ad-overlay--rewarded" role="dialog" aria-modal="true" aria-label="Video-Anzeige für einen Hinweis" hidden>
+    <div class="reward-card">
+      <div class="spinner" aria-hidden="true"></div>
+      <p class="reward-card__title">Video wird geladen...</p>
+      <div class="reward-progress"><div id="adRewardedBar" class="reward-progress__bar"></div></div>
+      <p class="reward-card__meta">Belohnung in <span id="adRewardedLeft">5</span> s: Lösungs-Hinweis für dieses Level</p>
+      <div class="ad-slot ad-slot--video">
+        <strong>HIER ADSENSE EINBINDEN</strong>
+        <small>Rewarded Video</small>
+      </div>
+      <button id="adRewardedCancel" class="link-btn" type="button">Abbrechen (kein Hinweis)</button>
+    </div>
+  </div>
+</body>
+</html>
