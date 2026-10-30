@@ -60,7 +60,7 @@ const string G_MAN = "5 · Manueller Kontrollmodus"
 const string G_ALR = "6 · Meldungen über alert()"
 
 string srcTF = input.string("5", "Analyse-Zeitrahmen (Minuten)", options = ["5", "15"], group = G_SRC,
-  tooltip = "Alle Swing-, Sweep-, Anker- und Bestätigungsberechnungen nutzen ausschließlich abgeschlossene Kerzen dieses Zeitrahmens. Der Chart darf gleich oder kleiner sein.")
+  tooltip = "Alle Swing-, Sweep-, Anker- und Bestätigungsberechnungen nutzen ausschließlich abgeschlossene Kerzen dieses Zeitrahmens. Der Chart-Zeitrahmen muss gleich sein oder ihn ohne Rest teilen (5m: 1m, 5m oder 1S/5S/10S/15S/30S · 15m: 1m, 3m, 5m, 15m oder ein teilender Sekunden-Zeitrahmen inkl. 45S).")
 
 int leftBars = input.int(3, "Pivot leftBars", minval = 1, maxval = 50, group = G_STR, inline = "piv")
 int rightBars = input.int(3, "rightBars", minval = 1, maxval = 50, group = G_STR, inline = "piv",
@@ -634,9 +634,10 @@ f_detectSweep(int n, int dir, Events ev) =>
             cnt.set(9, cnt.get(9) + 1)
             if not na(run.lbL)
                 label.set_text(run.lbL, f_txtL(run))
-        else if justConf and selA.idx <= lc.aIdx
-            // Die Bestätigungskerze sweept zusätzlich ein tieferes Niveau mit demselben A: das wäre exakt das eben
-            // bestätigte Leg ein zweites Mal. Kein neues Ereignis, Niveaus nur verbrauchen.
+        else if justConf and selA.idx == lc.aIdx
+            // Die Bestätigungskerze sweept zusätzlich ein tieferes Niveau mit DEMSELBEN A: das wäre exakt das eben
+            // bestätigte Leg ein zweites Mal. Kein neues Ereignis, Niveaus nur verbrauchen. (Ein älteres A ist eine
+            // andere Struktur und wird normal als Kandidat angelegt – genau wie einen Balken später.)
             lc.extraLevels += nSwept
             cnt.set(9, cnt.get(9) + 1)
             if not na(lc.lbL)
@@ -827,9 +828,9 @@ if barstate.islast and (showTable or not tfOk)
     if not chartTypeOk
         warn := "⚠ Charttyp nicht unterstützt (Renko/Range/Kagi/P&F/Line Break/Tick): Kerzen sind nicht zeitgebunden, Quellkerzen würden übersprungen. Es wird nichts berechnet – bitte einen Standard-Kerzenchart verwenden."
     else if not tfDivides and chartSec > srcSec
-        warn := "⚠ Chart-Zeitrahmen (" + timeframe.period + ") ist größer als der Analyse-Zeitrahmen (" + srcTF + "). Es wird nichts berechnet – bitte einen Chart-Zeitrahmen ≤ " + srcTF + " Minuten wählen."
+        warn := "⚠ Chart-Zeitrahmen (" + timeframe.period + ") ist größer als der Analyse-Zeitrahmen (" + srcTF + "). Es wird nichts berechnet – bitte den Analyse-Zeitrahmen selbst oder einen Teiler davon wählen (5m: 1m, 5m oder 1S/5S/10S/15S/30S · 15m: 1m, 3m, 5m, 15m oder ein teilender Sekunden-Zeitrahmen inkl. 45S)."
     else if not tfDivides
-        warn := "⚠ Chart-Zeitrahmen (" + timeframe.period + ") teilt " + srcTF + " Minuten nicht ohne Rest. Es wird nichts berechnet – bitte den Analyse-Zeitrahmen selbst oder einen Teiler wählen (5m: 1, 5 oder Sekunden · 15m: 1, 3, 5, 15 oder Sekunden)."
+        warn := "⚠ Chart-Zeitrahmen (" + timeframe.period + ") teilt " + srcTF + " Minuten nicht ohne Rest. Es wird nichts berechnet – bitte den Analyse-Zeitrahmen selbst oder einen Teiler davon wählen (5m: 1m, 5m oder 1S/5S/10S/15S/30S · 15m: 1m, 3m, 5m, 15m oder ein teilender Sekunden-Zeitrahmen inkl. 45S)."
     else if srcCount < leftBars + rightBars + 1
         warn := "Historie unzureichend: " + str.tostring(srcCount) + " Quellkerzen, mindestens " + str.tostring(leftBars + rightBars + 1) + " nötig."
     else

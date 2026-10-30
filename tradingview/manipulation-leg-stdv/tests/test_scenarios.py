@@ -358,6 +358,30 @@ class RegressionTests(unittest.TestCase):
             self.assertEqual(eng.confLegs[0].extraLevels, 2)
             self.assertEqual(len({(g.aIdx, g.bIdx) for g in eng.confLegs if g.dir == d}), 1)
 
+    OLDER_A_ON_CONFIRM_BAR = [
+        (95, 95.5, 94, 94.5), (94.5, 94.8, 92, 92.5), (92.5, 92.8, 90, 90.5),
+        (90.5, 90.8, 88, 89),              # 3 Swing-Tief 88.00
+        (89, 92, 88.5, 91.8), (91.8, 95, 91.5, 94.8), (94.8, 98, 94.5, 97.8), (97.8, 101, 97.5, 100.8),
+        (100.8, 105, 100.5, 104),          # 8 älteres, höheres Swing-Hoch 105
+        (104, 104.2, 101, 101.5), (101.5, 101.8, 98, 98.5), (98.5, 98.8, 95, 95.5),
+        (95.5, 95.8, 93, 93.5), (93.5, 93.8, 91, 92), (92, 95, 91.5, 94.8), (94.8, 97, 94.5, 96.8),
+        (96.8, 98.5, 96.5, 98.2), (98.2, 99.5, 98, 99.2),
+        (99.2, 100, 99, 99.5),             # 18 jüngeres Swing-Hoch 100
+        (99.5, 99.8, 97, 97.5), (97.5, 97.8, 95, 95.5), (95.5, 95.8, 93, 93.5), (93.5, 93.8, 92, 92.5),
+        (92.5, 92.8, 91.2, 91.5), (91.5, 92, 90.5, 91.8), (91.8, 95, 91.5, 94.8), (94.8, 98, 94.5, 97.8),
+        (97.8, 100.5, 97.5, 99.5),
+        (99.5, 101, 87.5, 100.5),          # 28 bestätigt A=100 UND sweept 88.00 (liegt vor dem älteren A=105)
+        (100.5, 102, 100.2, 101.5), (101.5, 102, 101, 101.5),
+    ]
+
+    def test_older_a_on_confirmation_bar_is_a_new_structure(self):
+        # Nur dasselbe A wird zusammengeführt. Ein älteres A ist eine andere Struktur – auf der Bestätigungskerze
+        # genauso wie eine Kerze später.
+        eng, _ = run5(self.OLDER_A_ON_CONFIRM_BAR)
+        cand = [(e.srcIdx, e.l, e.a, e.b) for e in evs(eng, "CAND", DIR_LONG)]
+        self.assertIn((28, 88.0, 105.0, 87.5), cand)
+        self.assertEqual([(e.srcIdx, e.a) for e in evs(eng, "CONF", DIR_LONG)][:1], [(28, 100.0)])
+
     OUTSIDE_BOTH = [
         (100, 100.5, 99.5, 100), (100, 101, 99.8, 100.8), (100.8, 102, 100.5, 101.8),
         (101.8, 105, 101.5, 104),          # 3 Swing-Hoch 105 (Short-L)
@@ -405,7 +429,7 @@ class PropertyTests(unittest.TestCase):
             self.assertEqual(ka, kb, f"seed {seed}")
 
     def test_lower_timeframe_chart_identical(self):
-        for seed, rows, kw in list(self.runs())[:10]:
+        for seed, rows, kw in self.runs():
             a, _ = run5(rows, **kw)
             b, _ = run1(rows, **kw)
             self.assertEqual([sig(e) for e in a.events], [sig(e) for e in b.events], f"seed {seed}")

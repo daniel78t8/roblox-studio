@@ -9,7 +9,7 @@ Dateien:
 | `tests/test_scenarios.py` | Szenariotests: `cd tests && python3 -m unittest -v test_scenarios` |
 
 > **Stand der Prüfung:** Der Pine-Code wurde **nicht** in TradingView kompiliert und **nicht** im Bar Replay getestet.
-> Das war aus dieser Umgebung nicht möglich. Geprüft wurde: (a) die Logik über das Python-Referenzmodell (40 Tests inkl.
+> Das war aus dieser Umgebung nicht möglich. Geprüft wurde: (a) die Logik über das Python-Referenzmodell (41 Tests inkl.
 > Zufallspfaden, alle bestanden), (b) Syntax und API-Verwendung statisch gegen eine Kopie der Pine-v6-Dokumentation. Der direkte
 > Zugriff auf tradingview.com war gesperrt. Details stehen im Abschnitt „Prüfprotokoll“.
 
@@ -85,8 +85,11 @@ Weitere Regeln:
   Richtung mit **demselben oder älterem A** erzeugt kein neues Ereignis; die zusätzlich gebrochenen Niveaus werden nur
   verbraucht (Anzeige „L … (+n)“, Zähler „zusammengeführt“). Ein Sweep mit **jüngerem A** ersetzt den laufenden Kandidaten.
   Der alte Kandidat wird dann „abgelaufen (ersetzt durch jüngere Struktur)“. Dasselbe Zusammenführen gilt, wenn die
-  **Bestätigungskerze** selbst noch ein tieferes Niveau mit demselben A bricht. Sonst entstünde dasselbe Leg (gleiches A,
-  gleiches B) ein zweites Mal.
+  **Bestätigungskerze** selbst noch ein tieferes Niveau mit **demselben** A bricht. Sonst entstünde dasselbe Leg (gleiches A,
+  gleiches B) ein zweites Mal. Ein älteres A ist dagegen eine andere Struktur und wird als neuer Kandidat angelegt – auf der
+  Bestätigungskerze genauso wie eine Kerze später.
+* Nach dem **Ablauf** eines Kandidaten (auch auf derselben Kerze) startet ein neuer Sweep eines tieferen Niveaus einen neuen
+  Kandidaten mit eigener Frist, auch wenn er dasselbe A verwendet.
 * **Gesweepte Niveaus sind verbraucht**, auch wenn kein gültiges A existiert (Zähler „Sweeps ohne gültiges A“). Dadurch
   entsteht für dasselbe Niveau nie ein zweites identisches Ereignis. Gleich tiefe/hohe Pivots, die dieselbe Kerze bricht,
   ergeben **ein** Ereignis (das jüngste L vor A wird angezeigt, die übrigen als „+n“).
@@ -101,8 +104,8 @@ Weitere Regeln:
   * A = B bzw. A nicht jenseits von B sowie eine falsche zeitliche Ankerreihenfolge (`L < A < B ≤ Sweep`, A vor dem Sweep
     bekannt) werden vor dem Anlegen eines Kandidaten geprüft (Zähler „Strukturfehler“). Bei der gewählten A/L-Auswahl kann
     das nicht eintreten; der Zähler muss 0 bleiben, sonst liegt ein Fehler vor.
-  * Eine Lücke in der Folge der Quellkerzen wird erkannt und als Warnung angezeigt („Quellkerze(n) übersprungen“). Bei
-    zulässigen Zeitrahmen darf das nicht vorkommen.
+  * Eine Lücke in der Folge der Quellkerzen wird über `bar_index[1]` der Quelle erkannt und als Warnung in der Statustabelle
+    angezeigt („Quellkerze(n) übersprungen“). Bei zulässigen Zeitrahmen darf das nicht vorkommen.
 
 ### Exakte STDV-Berechnung
 
@@ -157,8 +160,8 @@ kann versehentlich anders behandelt werden. Gespeichert und gezeichnet werden im
 * **Analyse-Zeitrahmen** `5` (Standard) oder `15`: Alle Pivots, Sweeps, Anker und Bestätigungen stammen ausschließlich aus
   abgeschlossenen Kerzen dieses Zeitrahmens. Auf einem kleineren Chart entstehen dadurch **keine** zusätzlichen Muster.
 * **Zulässige Charts:** zeitbasierte Kerzen-/Balkencharts (auch Heikin Ashi, siehe Grenzen), deren Zeitrahmen gleich dem
-  Analyse-Zeitrahmen ist oder ihn **ohne Rest teilt**: bei 5m → 5m, 1m oder Sekunden; bei 15m → 15m, 5m, 3m, 1m oder
-  Sekunden. Nur dann beginnt jede Quellkerze mit einer Chartkerze, und eine neue Quellkerze erscheint historisch wie in Echtzeit
+  Analyse-Zeitrahmen ist oder ihn **ohne Rest teilt**: bei 5m → 5m, 1m oder 1S/5S/10S/15S/30S (45S nicht, 300 s ÷ 45 s geht
+  nicht auf); bei 15m → 15m, 5m, 3m, 1m oder ein Sekunden-Zeitrahmen, der 900 s teilt (inkl. 45S). Nur dann beginnt jede Quellkerze mit einer Chartkerze, und eine neue Quellkerze erscheint historisch wie in Echtzeit
   auf derselben Chartkerze. Bei größerem oder nicht teilendem Zeitrahmen (z. B. 3m bei 5m-Quelle) sowie auf Renko-, Range-,
   Kagi-, P&F-, Line-Break- und Tick-Charts rechnet das Skript **nicht** und zeigt eine Meldung in der Tabelle.
 
@@ -188,8 +191,8 @@ Trefferalarme gibt es nur für die negativen Level (die Projektionen). 1, 0.5 un
 ### Gruppe 5 · Manueller Kontrollmodus
 A (Zeit + Preis) und B (Zeit + Preis) stehen jeweils auf einer gemeinsamen Zeile (`inline = "mA"` / `"mB"`).
 Projektionsformel identisch. Beschriftung „manuell“, eigene Farbe, keine Bestätigungsmarke, keine Alarme. Ein manuelles Leg
-gilt **nicht** als algorithmisch bestätigt. Richtung: B < A → Long-Szenario, B > A → Short-Szenario. A = B oder A zeitlich
-nach B → Hinweis in der Tabelle statt Zeichnung.
+gilt **nicht** als algorithmisch bestätigt. Richtung: B < A → Long-Szenario, B > A → Short-Szenario. Ein Preis 0 (nicht
+gesetzt), A = B (Preis) oder A nicht zeitlich vor B → Hinweis in der Tabelle statt Zeichnung.
 Interaktive Punktwahl per Klick: im Code `MANUAL_PICK_ON_CHART = true` setzen. Dann fragt TradingView beim Hinzufügen
 des Indikators nach den Punkten A und B (`confirm = true`; Zeit und Preis werden über dieselbe `inline`-Kennung zu einem
 Klick verbunden), und „Manuellen Modus aktivieren“ ist dann standardmäßig eingeschaltet. Standardmäßig ist die Punktwahl aus,
@@ -220,7 +223,8 @@ einen der `alertcondition()`-Einträge mit Häufigkeit **„Einmal pro Balken“
 | Bestätigung | Schluss einer **späteren** Kerze mit Close jenseits von A, frühestens 1 Quellkerze nach dem Sweep |
 
 Technisch liest das Skript per
-`request.security(syminfo.tickerid, srcTF, [open[1], high[1], low[1], close[1], time[1], time_close[1]], lookahead = barmerge.lookahead_on)`
+`request.security(syminfo.tickerid, srcTF, [open[1], high[1], low[1], close[1], time[1], time_close[1], bar_index[1]], lookahead = barmerge.lookahead_on)`
+(`bar_index[1]` dient nur der Lückenprüfung)
 auf jeder Chartkerze die **zuletzt vollständig geschlossene** Quellkerze. Mit `[1]` und `lookahead_on` ist das historisch und
 in Echtzeit gleich und enthält keine Zukunftsdaten, sofern der Chart-Zeitrahmen den Analyse-Zeitrahmen teilt (andere werden
 abgelehnt, siehe Gruppe 1). Jede neue Quellkerze wird anhand ihrer Öffnungszeit genau **einmal** übernommen. Deshalb erscheint
@@ -229,7 +233,7 @@ ein Ereignis auf der **ersten Chartkerze nach Schluss** der auslösenden Quellke
 * Chart = Quelle (5m auf 5m): auf der folgenden Kerze, also zum Zeitpunkt `time_close` der auslösenden Kerze.
 * Chart kleiner (1m bei 5m-Quelle): auf der ersten 1m-Kerze der nächsten 5m-Periode.
 
-Die grüne/rote Marke „✓ Long/Short bestätigt“ sitzt genau dort. A, B, L und die Sweep-Marke (×) sitzen dagegen an ihren
+Die grüne/rote Marke „✓ Long-/Short-Szenario bestätigt“ sitzt genau dort. A, B, L und die Sweep-Marke (×) sitzen dagegen an ihren
 tatsächlichen Quellkerzen (nachträglich markiert). Ein Bestätigungsalarm kann deshalb nie rückwirkend auf der Sweep-Kerze
 erscheinen. `barstate.isconfirmed` wird dafür nicht benutzt.
 
@@ -314,7 +318,7 @@ Uhrzeiten auf der Achse entsprechend umrechnen.
 **Tatsächlich durchgeführt**
 
 * Python-Referenzmodell (`tests/reference_model.py`) der Pine-Logik inklusive Simulation von
-  `request.security(…[1], lookahead_on)` für 5m-auf-5m, 5m-auf-1m und 15m-auf-5m. 40 Tests, alle bestanden:
+  `request.security(…[1], lookahead_on)` für 5m-auf-5m, 5m-auf-1m und 15m-auf-5m. 41 Tests, alle bestanden:
   * beide Rechenbeispiele (Long A=100/B=90, Short A=100/B=110), −1 ≠ A
   * Long- und Short-Basisszenario: Kandidat auf der Sweep-Kerze, Docht über A ohne Bestätigung, Bestätigung erst bei
     späterem Close, Treffer „berührt“ (−1), „überschritten“ (−1.5), „Kurslücke“ (−2), Rücklauf genau auf B ohne
@@ -330,11 +334,12 @@ Uhrzeiten auf der Achse entsprechend umrechnen.
     Quellkerze; 15m-Quelle auf 5m-Chart identisch zu 15m-Chart
   * Replay-Stabilität: Für jeden früheren Datenstand sind die Ereignisse identisch zur vollen Historie bis dahin
   * Regressionen: Bestätigungskerze, die zusätzlich ein tieferes Niveau bricht → genau eine Bestätigung; Außenkerze, die
-    Short-L sweept und Short-A unterschreitet → Ergebnis unabhängig von der Rechenreihenfolge; Pivot-Fenster größer als der
-    eingestellte Puffer
+    Short-L sweept und Short-A unterschreitet → Ergebnis unabhängig von der Rechenreihenfolge; Bestätigungskerze, die ein
+    Niveau vor einem älteren A bricht → neue Struktur wird angelegt; Pivot-Fenster größer als der eingestellte Puffer
   * Eigenschaften auf 40 Zufallspfaden (1200 Kerzen, Tick 0.25, zufällige Pivot-Längen, Kurslücken): exakte
     Long/Short-Spiegelsymmetrie; 1m-Chart identisch zum 5m-Chart; jede Ungültigkeit genau auf der ersten Kerze, die B um
-    ≥ 1 Tick bricht; jeder Projektionstreffer auf der ersten Kerze nach der Bestätigung, vorher erreichte Level nie gemeldet;
+    ≥ 1 Tick bricht; jeder Projektionstreffer auf der ersten Kerze nach der Bestätigung, die das Level erreicht; bis
+    einschließlich der Bestätigungskerze erreichte Level nie gemeldet;
     kein Ereignis doppelt; keine zwei Legs mit identischen Ankern
 * Statischer Abgleich von Syntax und API mit der Pine-v6-Referenz (gespiegelte Kopie, siehe oben), zusätzlich eine
   unabhängige Gegenprüfung in vier Bereichen (Syntax/API, MTF/Echtzeit/Alarme, Vollständigkeit gegenüber der Vorgabe,
@@ -342,7 +347,9 @@ Uhrzeiten auf der Achse entsprechend umrechnen.
   Bestätigung durch eine Außenkerze, Long/Short-Reihenfolgeabhängigkeit, nicht teilende Chart-Zeitrahmen und Renko/Range-
   Charts nicht abgelehnt, Überwachung an die Anzeige-Historie gekoppelt, mögliches Überschreiten des Label-Limits,
   „+n“-Anzeige nicht aktualisiert, Pivot-Fenster größer als Puffer, manueller Tooltip „Status: bestätigt“, Richtungstexte
-  auf den Labels, mehrere README-Ungenauigkeiten.
+  auf den Labels, mehrere README-Ungenauigkeiten. Eine zweite Gegenprüfung nur des Korrektur-Diffs fand noch, dass das
+  Zusammenführen auf der Bestätigungskerze auch ein älteres A erfasste (jetzt nur noch dasselbe A), sowie veraltete Texte;
+  beides ist behoben.
 
 **Nicht durchgeführt**
 

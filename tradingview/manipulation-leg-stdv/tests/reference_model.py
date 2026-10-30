@@ -235,7 +235,7 @@ class Engine:
         elif running and selA.idx <= run.aIdx:
             run.extraLevels += nSwept
             self.cnt[9] += 1
-        elif justConf and selA.idx <= lc.aIdx:
+        elif justConf and selA.idx == lc.aIdx:
             lc.extraLevels += nSwept
             self.cnt[9] += 1
         else:
