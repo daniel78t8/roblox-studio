@@ -4,7 +4,7 @@ Zerstöre die türkisen Formen und bring den roten Klotz sicher auf den grünen 
 Der Klotz selbst ist unzerstörbar und darf nicht aus dem Spielfeld fallen.
 
 Mobile-First, ohne Bilder, ohne Webfonts und ohne Bibliotheken: alle Dateien
-zusammen sind ca. 75 KB unkomprimiert.
+zusammen sind ca. 85 KB unkomprimiert bzw. 24 KB gzip.
 
 ## Starten
 
