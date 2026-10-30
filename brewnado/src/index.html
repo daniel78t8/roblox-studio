@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#140c26">
+<title>Brewnado</title>
+<!--SDK-->
+<style>
+/* Font: Inter - Copyright 2016-2023 The Inter Project Authors - SIL Open Font License 1.1 (see LICENSE-Inter-OFL.txt / https://openfontlicense.org) */
+/*FONTS*/
+/*CSS*/
+</style>
+</head>
+<body>
+<div id="app" class="landscape">
+  <div id="stage">
+    <canvas id="scene"></canvas>
+    <div id="hud">
+      <div id="count"><span id="countIco"></span><span id="potions">0</span></div>
+      <div id="rate"><b id="pps">0</b> <span id="ppsLabel"></span></div>
+      <div id="buffs"></div>
+    </div>
+    <div class="corner" id="cornerL"><button class="ibtn" id="btnRecords" type="button"></button><button class="ibtn gift hidden" id="btnGift" type="button"></button></div>
+    <div class="corner" id="cornerR"><button class="ibtn" id="btnSound" type="button"></button><button class="ibtn" id="btnSettings" type="button"></button></div>
+    <div id="meter"><span id="meterIco"></span><div class="track"><div class="fill" id="meterFill"></div><span id="meterLabel"></span></div></div>
+    <div id="hint" class="hint hidden"><span class="txt"></span><span class="hand"></span></div>
+    <div id="banner"></div>
+    <div id="toasts"></div>
+  </div>
+  <div id="panel">
+    <div id="tabs">
+      <button class="tab active" data-tab="helpers" type="button"><span class="tl"></span></button>
+      <button class="tab" data-tab="upgrades" type="button"><span class="tl"></span><span class="badge hidden" id="upBadge"></span></button>
+      <button class="tab" data-tab="magic" type="button"><span class="tl"></span><span class="badge dot hidden" id="magicBadge"></span></button>
+    </div>
+    <div id="buybar"><span class="lbl" id="buyLbl"></span><div class="seg"><button type="button" data-buy="1">×1</button><button type="button" data-buy="10">×10</button><button type="button" data-buy="max">Max</button></div></div>
+    <div id="helperList" class="list"></div>
+    <div id="upList" class="list hidden"></div>
+    <div id="magicList" class="list hidden"></div>
+  </div>
+</div>
+<div id="splash"><div class="sp"><span id="splashIco"></span><span class="spt">Brewnado</span><span class="spl"><i></i></span></div></div>
+<div id="tooltip" class="hidden"></div>
+<div id="modal" class="hidden"></div>
+<script>
+/*JS*/
+</script>
+</body>
+</html>
