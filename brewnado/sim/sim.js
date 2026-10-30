@@ -22,17 +22,29 @@ function run(opts) {
   const marks = [1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13];
   const reportAt = new Set((opts.report || [5, 10, 15, 20, 30, 45, 60, 90, 120]).map(m => m * 60));
   const wantStones = opts.stopAtStones || Infinity;
-  const luck = 1 + BW.TUNE.luckyChance * (BW.TUNE.luckyMult - 1);
-  function income(cc) { return cc.ppsNow + cc.handPpsNow + cps * cc.clickNow * luck; }
+  function luck(cc) { return 1 + cc.luckyChance * (cc.luckyMult - 1) + cc.jackpotChance * (cc.jackpotMult - 1); }
+  function income(cc) { return cc.ppsNow + cc.handPpsNow + cps * cc.clickNow * luck(cc) * C.comboMult(cc, 40); }
+  let bubbleIn = BW.TUNE.bubbleFirst, quests = 0;
   while (t < minutes * 60) {
     // clicks
-    clickAcc += cps * dt;
-    while (clickAcc >= 1) { clickAcc -= 1; const r = C.click(s, c, rng()); if (r.nado) { c = C.calc(s); } }
+    // players take a short break now and then (3 s every 30 s), which breaks the combo
+    const pause = (t % 30) >= 27;
+    if (!pause) clickAcc += cps * dt;
+    while (clickAcc >= 1) { clickAcc -= 1; const r = C.click(s, c, rng()); if (r.nado || r.fever || s.combo % 10 === 0) { c = C.calc(s); } }
+    // bubbles (popped with the same probability as wisps are caught)
+    bubbleIn -= dt;
+    if (bubbleIn <= 0) { if (rng() < (opts.catch ?? 0.9)) C.popBubble(s, c, rng() < c.bubbleGold); bubbleIn = C.nextBubbleDelay(s, c, rng()); }
+    // quests: claimed as soon as they are done
+    if (Math.round(t * 10) % 20 === 0) {
+      C.ensureQuests(s, c, rng);
+      C.updateQuests(s);
+      for (let qi = 0; qi < s.quests.length; qi++) if (s.quests[qi].done) { C.claimQuest(s, c, qi, rng()); quests++; }
+    }
     // wisps
     if (wispActive < 0) { s.wispIn -= dt; if (s.wispIn <= 0) wispActive = 2.0; }
     else { wispActive -= dt; if (wispActive <= 0) { if (rng() < (opts.catch ?? 0.9)) C.catchWisp(s, c, rng()); s.wispIn = C.nextWispDelay(s, c, rng()); wispActive = -1; c = C.calc(s); } }
     if (C.tick(s, c, dt)) c = C.calc(s);
-    else if (s.buffs.rush > 0 || s.buffs.storm > 0 || s.buffs.nado > 0) c = C.calc(s);
+    else if (s.buffs.rush > 0 || s.buffs.storm > 0 || s.buffs.nado > 0 || s.buffs.fever > 0) c = C.calc(s);
     t += dt;
     // buying every second
     if (t - lastBuyEval >= 1) {
@@ -61,7 +73,7 @@ function run(opts) {
         for (const u of C.availableUpgrades(s)) {
           s.ups[u.id] = true; const nc = C.calc(s); delete s.ups[u.id];
           let d = income(nc) - base;
-          if (u.kind === 'nado' || u.kind === 'wisp') d = Math.max(d, base * 0.03); // rough value of utility upgrades
+          if (u.kind === 'nado' || u.kind === 'wisp' || u.kind === 'combo' || u.kind === 'bubble') d = Math.max(d, base * 0.03); // rough value of utility upgrades
           if (d <= 0) continue;
           const score = u.cost / d + Math.max(0, u.cost - s.potions) / Math.max(base, 1e-9);
           if (!best || score < best.score) best = { score, cost: u.cost, kind: 'u', u };
@@ -77,7 +89,7 @@ function run(opts) {
       for (const m of marks) if (!milestones[m] && s.runEarned >= m) milestones[m] = t;
       const sec = Math.round(t);
       if (reportAt.has(sec) && !log.find(l => l.sec === sec)) {
-        log.push({ sec, pps: c.pps, hpps: c.handPps, click: c.clickPower, earned: s.runEarned, stones: C.stonesForRun(s), helpers: c.helpersOwned, hands: s.hands, stage: s.stage, ups: c.upsOwned, ach: c.achCount, nados: s.runNados, wisps: s.wisps });
+        log.push({ quests, fevers: s.fevers, jackpots: s.jackpots, sec, pps: c.pps, hpps: c.handPps, click: c.clickPower, earned: s.runEarned, stones: C.stonesForRun(s), helpers: c.helpersOwned, hands: s.hands, stage: s.stage, ups: c.upsOwned, ach: c.achCount, nados: s.runNados, wisps: s.wisps });
       }
       if (C.stonesForRun(s) >= wantStones) break;
     }
@@ -92,7 +104,7 @@ function report(name, r) {
   console.log('first helper times:', Object.entries(r.firsts).map(([i, t]) => BW.HELPERS[i].id + '@' + mmss(t)).join('  '));
   console.log('earned milestones:', Object.entries(r.milestones).map(([m, t]) => fmt(+m) + '@' + mmss(t)).join('  '));
   console.log('cauldron levels:', r.stages.join('  '));
-  for (const l of r.log) console.log(`${mmss(l.sec).padStart(6)}  pps ${fmt(l.pps).padStart(8)}  hands/s ${fmt(l.hpps).padStart(8)}  click ${fmt(l.click).padStart(8)}  earned ${fmt(l.earned).padStart(8)}  stones ${String(l.stones).padStart(4)}  helpers ${l.helpers}  hands ${l.hands}  lvl ${l.stage}  ups ${l.ups}  ach ${l.ach}`);
+  for (const l of r.log) console.log(`${mmss(l.sec).padStart(6)}  pps ${fmt(l.pps).padStart(8)}  hands/s ${fmt(l.hpps).padStart(8)}  click ${fmt(l.click).padStart(8)}  earned ${fmt(l.earned).padStart(8)}  stones ${String(l.stones).padStart(4)}  helpers ${l.helpers}  hands ${l.hands}  lvl ${l.stage}  ups ${l.ups}  ach ${l.ach}  quests ${l.quests}  fevers ${l.fevers}  jackpots ${l.jackpots}`);
 }
 
 const active = run({ cps: 5, minutes: 120, seed: 7 });

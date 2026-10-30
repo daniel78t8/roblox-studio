@@ -147,7 +147,7 @@ with sync_playwright() as p:
     b, ctx, page = open_page(p, CG, route=fulfill(mock(0, locale='de_DE')))
     check('locale: de_DE picks German', page.evaluate('() => document.documentElement.lang') == 'de')
     txt = page.evaluate("() => { window.__bw.setTab('magic'); return document.getElementById('mgNext').textContent; }")
-    check('Minor 6 first Moonrise goal states 800 Mio.', '800 Mio.' in txt, txt)
+    check('Minor 6 first Moonrise goal states 8 Mrd.', '8 Mrd.' in txt, txt)
     b.close()
     # number formatting + save validation
     b, ctx, page = open_page(p, WEB)

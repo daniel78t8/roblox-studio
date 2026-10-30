@@ -9,7 +9,9 @@
   var lastFrame = 0, uiAcc = 0, achAcc = 0, saveAcc = 0, hiddenAt = 0;
   var clickTimes = [], wispWas = false, wispCaught = false, coarse = false, mem = {}, frameEma = 1 / 60, perfTime = 0;
   var tip = { el: null, fn: null };
-  var lastBuffSig = '', modalAt = 0;
+  var lastBuffSig = '', modalAt = 0, dispPotions = 0, feverOn = false;
+  var COMBO_AT = [10, 25, 50, 75, 150, 200, 300, 500, 1000];
+  var Q_ICON = { click: 'c1', combo: 'combo', buy: 'frog', hand: 'hand', nado: 'tornado', bubble: 'bubble', lucky: 'lucky', up: 'g2', wisp: 'wisp', earn: 'potion' };
   function $(id) { return document.getElementById(id); }
   function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
   function setText(el, v) { if (el && el._v !== v) { el._v = v; el.textContent = v; } }
@@ -75,6 +77,8 @@
     $('btnGift').addEventListener('click', function () { audio.unlock(); audio.sfx.tick(); openGift(); });
     scene.onHandTap(function () { audio.sfx.handTap(); });
     $('btnSettings').innerHTML = BW.icon('gear');
+    $('questBar').querySelector('.qi').innerHTML = BW.icon('scroll');
+    $('questBar').addEventListener('click', function () { audio.unlock(); audio.sfx.tick(); openQuests(); });
     $('hint').querySelector('.hand').innerHTML = HAND;
     Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (b) {
       b.addEventListener('click', function () { audio.unlock(); setTab(b.getAttribute('data-tab')); });
@@ -114,6 +118,9 @@
     $('btnGift').setAttribute('aria-label', t('gift'));
     $('btnSettings').setAttribute('aria-label', t('settings'));
     $('btnSound').setAttribute('aria-label', t('sound'));
+    $('questBar').setAttribute('aria-label', t('quests'));
+    scene.setComboLabel(t('combo'));
+    questSig = '';
     upSig = ''; magicBuilt = '';
     updateSoundBtn();
   }
@@ -203,6 +210,7 @@
     if (u.kind === 'tier') return t('upTier', { h: i18n.pick(BW.HELPERS[u.helper])[0] });
     if (u.kind === 'click') return u.eff.mult ? t('upClickMult', { m: u.eff.mult }) : t('upClickPct', { p: i18n.pct(Math.round(u.eff.pct * 100)) });
     if (u.kind === 'global') return t('upGlobal', { p: Math.round(u.bonus * 100) });
+    if (u.kind === 'combo' || u.kind === 'luck' || u.kind === 'bubble') return t('up_' + u.kind + '_' + u.eff);
     if (u.kind === 'hand') {
       var parts = [];
       if (u.eff.power) parts.push(t('upHandPower', { m: u.eff.power }));
@@ -229,7 +237,9 @@
 
   // ------------------------------------------------------------------ UI updates
   function updateUI() {
-    setText($('potions'), fmt(S.potions));
+    if (dispPotions > S.potions || !(dispPotions >= 0)) dispPotions = S.potions;
+    setText($('potions'), fmt(dispPotions));
+    updateQuestBar();
     setText($('pps'), fmt(C.ppsTotalNow, true));
     scene.setHands(S.hands, C.handRate, handLook(), '+' + fmt(C.handTapNow, true));
     updateGift();
@@ -303,6 +313,7 @@
     if (S.buffs.rush > 0) list.push(['rush', 'wisp', t('buffRush') + ' ×' + BW.TUNE.rushMult, S.buffs.rush]);
     if (S.buffs.storm > 0) list.push(['storm', 'c5', t('buffStorm') + ' ×' + BW.TUNE.stormMult, S.buffs.storm]);
     if (S.buffs.nado > 0) list.push(['nado', 'tornado', t('buffNado') + ' ×' + BW.TUNE.nadoRushMult, S.buffs.nado]);
+    if (S.buffs.fever > 0) list.push(['fever', 'fever', t('buffFever') + ' ×' + C.feverMult, S.buffs.fever]);
     var sig = list.map(function (b) { return b[0]; }).join(',') + i18n.getLang();
     var box = $('buffs');
     if (sig !== lastBuffSig) {
@@ -475,6 +486,75 @@
     });
   }
 
+  // ------------------------------------------------------------------ quests
+  var questSig = '';
+  function questsUnlocked() { return S.clicks >= 15 || S.allEarned >= 300; }
+  function questText(q) {
+    if (q.k === 'wisp') return t('q_wisp');
+    if (q.n === 1 && (q.k === 'nado' || q.k === 'bubble' || q.k === 'lucky' || q.k === 'up')) return t('q_' + q.k + '1');
+    return t('q_' + q.k, { n: q.k === 'earn' ? fmt(q.n) : i18n.groupInt(q.n) });
+  }
+  function questCount(q) {
+    var p = core.questProgress(S, q);
+    return q.k === 'earn' ? fmt(p) + ' / ' + fmt(q.n) : i18n.groupInt(p) + ' / ' + i18n.groupInt(q.n);
+  }
+  function updateQuestBar() {
+    var bar = $('questBar'), on = questsUnlocked() && S.quests.length > 0;
+    if (bar.classList.contains('hidden') === on) bar.classList.toggle('hidden', !on);
+    if (!on) return;
+    var ready = 0, best = null, bestP = -1;
+    S.quests.forEach(function (q) {
+      if (q.done) { ready++; return; }
+      var p = core.questProgress(S, q) / q.n;
+      if (p > bestP) { bestP = p; best = q; }
+    });
+    var txt, cnt, p;
+    if (ready) { txt = ready === 1 ? t('questReady1') : t('questReady', { n: ready }); cnt = ''; p = 1; }
+    else if (best) { txt = questText(best); cnt = questCount(best); p = bestP; }
+    else return;
+    setText(bar.querySelector('.qt'), txt);
+    setText(bar.querySelector('.qn'), cnt);
+    var w = (Math.max(0, Math.min(1, p)) * 100).toFixed(1) + '%', fill = bar.querySelector('.qp i');
+    if (fill._w !== w) { fill._w = w; fill.style.width = w; }
+    bar.classList.toggle('ready', ready > 0);
+    var ico = ready ? 'scroll' : Q_ICON[best.k];
+    if (bar._ic !== ico) { bar._ic = ico; bar.querySelector('.qi').innerHTML = BW.icon(ico); }
+  }
+  function checkQuests() {
+    if (!questsUnlocked()) return;
+    if (S.quests.length < 3) core.ensureQuests(S, C, Math.random);
+    core.updateQuests(S).forEach(function (i) {
+      var q = S.quests[i];
+      toast('scroll', t('questDone'), questText(q), 'gold');
+      audio.sfx.questDone(); buzz(30);
+      var bar = $('questBar'); bar.classList.remove('pop'); void bar.offsetWidth; bar.classList.add('pop');
+    });
+  }
+  function openQuests() {
+    checkQuests();
+    var body = '<p class="muted qintro">' + esc(t('questsText')) + '</p>' + S.quests.map(function (q, i) {
+      var p = core.questProgress(S, q) / q.n;
+      return '<div class="quest' + (q.done ? ' done' : '') + '"><span class="ico">' + BW.icon(Q_ICON[q.k]) + '</span><div class="qmid"><div class="name">' + esc(questText(q)) + '</div>' +
+        '<div class="prog"><div style="width:' + (Math.min(1, p) * 100).toFixed(1) + '%"></div></div><div class="muted">' + esc(questCount(q)) + '</div></div>' +
+        '<div class="qright"><div class="cost">' + BW.icon('potion') + '<span>+' + fmt(core.questReward(S, C)) + '</span></div>' +
+        '<button type="button" class="btn qclaim" data-q="' + i + '"' + (q.done ? '' : ' disabled') + '>' + esc(t('questClaim')) + '</button></div></div>';
+    }).join('') + '<div class="muted qtotal">' + esc(t('st_quests')) + ': ' + i18n.groupInt(S.questsDone) + '</div>';
+    openModal(t('quests'), body, [{ label: t('close'), cls: 'sec', fn: closeModal }]);
+    Array.prototype.forEach.call(document.querySelectorAll('#modal .qclaim'), function (b) {
+      b.addEventListener('click', function () { claimQuest(Number(b.getAttribute('data-q'))); });
+    });
+  }
+  function claimQuest(i) {
+    var got = core.claimQuest(S, C, i, Math.random());
+    if (!(got > 0)) { audio.sfx.deny(); return; }
+    audio.sfx.gift(); buzz(40);
+    aimTarget();
+    var L = scene.layout(); scene.flyPotions(L.cx, L.cy - L.R * 0.2, 14); scene.burst(L.cx, L.cy - L.R * 0.2, '255,211,107', 30, 320);
+    toast('scroll', t('questGot', { n: fmt(got) }), null, 'gold');
+    C = core.calc(S); checkAch(); save();
+    modalOpen = false; openQuests();
+  }
+
   // ------------------------------------------------------------------ toasts, banner, hints, modal
   var toastQ = [];
   function toast(icon, title, sub, cls) {
@@ -521,8 +601,12 @@
       else if (!S.tut.wisp && S.wisps === 0 && scene.wispActive()) { var wp = scene.wispPos(); if (wp) { txt = t('hintWisp'); x = wp.x; y = wp.y - L.R * 0.2; } }
       else if (!S.tut.meter && S.nados === 0 && S.meter >= C.meterCap * 0.35) {
         var m = $('meter'); txt = t('hintMeter'); x = L.cx; y = m.offsetTop - 4;
+      } else if (!S.tut.bubble && S.bubbles === 0 && scene.bubblePos()) {
+        var bp = scene.bubblePos(); txt = t('hintBubble'); x = bp.x; y = bp.y - L.R * 0.25;
       } else if (!S.tut.helper && S.clicks >= 5 && S.potions >= BW.HELPERS[0].cost && $('app').className === 'portrait' && tab === 'helpers') {
         txt = t('hintBuy'); x = L.cx; y = $('stage').clientHeight - 2;
+      } else if (!S.tut.combo && S.clicks >= 25 && S.comboBest < 10 && S.combo < 3) {
+        txt = t('hintCombo'); x = L.cx; y = L.cy - L.R * 0.38;
       }
     }
     if (!txt) { if (!h.classList.contains('hidden')) h.classList.add('hidden'); return; }
@@ -574,6 +658,7 @@
     if (a.cat === 'moon') return a.n === 1 ? t('ach_moon1') : t('ach_moon', { n: n });
     if (a.cat === 'lucky') return a.n === 1 ? t('ach_lucky1') : t('ach_lucky', { n: n });
     if (a.cat === 'stage') return t('ach_stage', { name: stageName(a.n) });
+    if (a.cat === 'fever' || a.cat === 'jackpot' || a.cat === 'bubble' || a.cat === 'quest') return a.n === 1 ? t('ach_' + a.cat + '1') : t('ach_' + a.cat, { n: n });
     return t('ach_' + a.cat, { n: n });
   }
   function openRecords(which) {
@@ -589,7 +674,9 @@
         [t('st_all'), fmt(S.allEarned)], [t('st_run'), fmt(S.runEarned)], [t('st_clicks'), i18n.groupInt(S.clicks)],
         [t('st_best'), fmt(S.best, true) + '/s'], [t('st_nados'), i18n.groupInt(S.nados)], [t('st_wisps'), i18n.groupInt(S.wisps)],
         [t('st_stage'), stageName(S.stage) + ' (' + t('stageLv', { n: S.stage + 1 }) + ')'], [t('st_hands'), i18n.groupInt(S.hands)], [t('st_taps'), i18n.groupInt(S.handTaps)],
-        [t('st_lucky'), i18n.groupInt(S.lucky)], [t('st_streak'), i18n.groupInt(S.daily ? S.daily.streak : 0)],
+        [t('st_lucky'), i18n.groupInt(S.lucky)], [t('st_jackpots'), i18n.groupInt(S.jackpots)], [t('st_combo'), i18n.groupInt(S.comboBest)],
+        [t('st_fevers'), i18n.groupInt(S.fevers)], [t('st_bubbles'), i18n.groupInt(S.bubbles)], [t('st_quests'), i18n.groupInt(S.questsDone)],
+        [t('st_streak'), i18n.groupInt(S.daily ? S.daily.streak : 0)],
         [t('st_moon'), i18n.groupInt(S.rebirths)], [t('st_stones'), i18n.groupInt(S.stonesEver)], [t('st_time'), i18n.duration(S.playTime)]
       ];
       body += rows.map(function (r) { return '<div class="row"><span>' + esc(r[0]) + '</span><span class="rowval">' + esc(r[1]) + '</span></div>'; }).join('');
@@ -610,7 +697,7 @@
       '<div class="row"><span>' + esc(t('music')) + '</span>' + seg('music', [['1', t('on')], ['0', t('off')]], S.settings.music ? '1' : '0') + '</div>' +
       '<div class="row"><span>' + esc(t('language')) + '</span>' + seg('lang', [['auto', t('langAuto')], ['en', 'English'], ['de', 'Deutsch']], S.settings.lang) + '</div>' +
       '<div style="margin-top:.9em"><button class="btn danger wide" id="btnReset" type="button">' + esc(t('reset')) + '</button></div>' +
-      '<div class="credits">' + esc(t('credits')) + '<br>Brewnado 1.0</div>';
+      '<div class="credits">' + esc(t('credits')) + '<br>Brewnado 2.0</div>';
     openModal(t('settings'), body, [{ label: t('close'), cls: 'sec', fn: closeModal }]);
     Array.prototype.forEach.call(document.querySelectorAll('#modal [data-seg] button'), function (b) {
       b.addEventListener('click', function () {
@@ -637,7 +724,7 @@
     S = core.newState(); S.settings = keep;
     C = core.calc(S);
     syncScene();
-    upSig = ''; magicBuilt = ''; lastBuffSig = '';
+    upSig = ''; magicBuilt = ''; lastBuffSig = ''; dispPotions = 0;
     save();
     setTab('helpers');
   }
@@ -686,9 +773,22 @@
     clickTimes.push(now);
     var boosted = C.clickBuff > 1;
     var r = core.click(S, C, Math.random());
-    audio.sfx.bloop(boosted);
+    audio.sfx.bloop(boosted, r.combo);
     if (r.lucky) audio.sfx.lucky();
-    scene.onClick(x, y, r.nado ? '' : (r.lucky ? t('lucky') + ' +' : '+') + fmt(r.gain, true), boosted, r.lucky);   // the Brewnado banner shows the reward instead
+    var label = r.jackpot ? t('jackpot') + ' +' : r.lucky ? t('lucky') + ' +' : '+';
+    scene.onClick(x, y, r.nado || r.jackpot ? '' : label + fmt(r.gain, true), boosted, r.lucky, r.combo);   // the Brewnado banner shows the reward instead
+    if (r.jackpot) {
+      scene.jackpot(x, y); audio.sfx.jackpot(); buzz([40, 40, 80]);
+      scene.floatText(x, y - scene.layout().R * 0.35, label + fmt(r.gain), 1.9, '#ffe27a');
+      aimTarget(); scene.flyPotions(x, y, 16);
+    }
+    var lvl = COMBO_AT.indexOf(r.combo);
+    if (lvl >= 0) { scene.comboWord(t('comboWords').split('|')[lvl], lvl); audio.sfx.comboUp(lvl); if (lvl >= 2) buzz(25); S.tut.combo = true; }
+    if (r.fever) {
+      scene.setFever(true); feverOn = true; audio.sfx.fever(); audio.setFever(true); buzz([30, 30, 60]);
+      if (!r.nado) showBanner(t('feverSub', { m: C.feverMult }), t('feverBanner'));
+      else setTimeout(function () { if (S.buffs.fever > 0) showBanner(t('feverSub', { m: C.feverMult }), t('feverBanner')); }, 1500);   // after the Brewnado banner
+    }
     if (r.nado) {
       S.tut.meter = true;
       scene.startNado(); audio.sfx.nado(); showBanner('+' + fmt(r.nado));
@@ -717,6 +817,27 @@
     if (S.wispIn <= 0 && !modalOpen) {
       scene.spawnWisp(C.wispLife); audio.sfx.wispSpawn(); wispWas = true;
     }
+  }
+  function updateBubbles(dt) {
+    S.bubbleIn -= dt;
+    if (S.bubbleIn > 0 || modalOpen || S.clicks < 10) return;
+    S.bubbleIn = core.nextBubbleDelay(S, C, Math.random());
+    if (scene.spawnBubble(Math.random() < C.bubbleGold, BW.TUNE.bubbleLife)) audio.sfx.wispSpawn();
+  }
+  function popBubble(i) {
+    var b = scene.popBubble(i);
+    if (!b) return;
+    S.tut.bubble = true;
+    var got = core.popBubble(S, C, b.golden);
+    audio.sfx.bubblePop(b.golden);
+    if (b.golden) buzz(30);
+    scene.floatText(b.x, b.y, (b.golden ? t('golden') + ' +' : '+') + fmt(got), b.golden ? 1.6 : 1.25, b.golden ? '#ffe27a' : '#bfefff');
+    aimTarget(); scene.flyPotions(b.x, b.y, b.golden ? 12 : 5);
+    C = core.calc(S);
+  }
+  function buzz(p) {
+    if (!coarse || !navigator.vibrate) return;
+    try { navigator.vibrate(p); } catch (e) { /* not supported */ }
   }
   function buyHand() {
     var mode = S.settings.buy, n = mode === 'max' ? core.maxHands(S) : mode;
@@ -768,6 +889,7 @@
       setTimeout(function () { toast(BW.iconForAch(a), t('achToast') + ' ' + achName(a), t('achBonus'), 'gold'); audio.sfx.achievement(); }, k * 450);
     });
     if (got.length) C = core.calc(S);
+    checkQuests();
   }
 
   // ------------------------------------------------------------------ layout, input, loop
@@ -795,6 +917,8 @@
       if (ae && ae !== document.body && ae.blur) ae.blur();
       var r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
       if (scene.hitWisp(x, y)) { catchWisp(); return; }
+      var bi = scene.hitBubble(x, y);
+      if (bi >= 0) { popBubble(bi); return; }
       if (scene.hitCauldron(x, y)) cauldronClick(x, y);
     }, { passive: false });
     $('stage').addEventListener('contextmenu', function (e) { e.preventDefault(); });
@@ -854,6 +978,14 @@
       advance(econ);
       var dt = Math.min(econ, 0.1);
       updateWisps(dt);
+      updateBubbles(dt);
+      scene.setCombo(S.combo, C.comboWindow > 0 ? S.comboT / C.comboWindow : 0);
+      if (feverOn !== S.buffs.fever > 0) { feverOn = S.buffs.fever > 0; scene.setFever(feverOn); audio.setFever(feverOn); }
+      if (dispPotions < S.potions) {
+        dispPotions += (S.potions - dispPotions) * Math.min(1, dt * 14) + 1e-9;
+        if (S.potions - dispPotions < Math.max(0.5, S.potions * 1e-4)) dispPotions = S.potions;
+        setText($('potions'), fmt(dispPotions));
+      }
       if (econ > 0 && econ < 0.5) {
         frameEma = frameEma * 0.97 + econ * 0.03;
         perfTime += econ;
@@ -877,6 +1009,7 @@
     var raw = storeGet();
     var loaded = raw ? core.deserialize(raw) : null;
     S = loaded || core.newState();
+    dispPotions = S.potions;
     i18n.setLang(detectLang());
     C = core.calc(S);
     syncScene();
@@ -916,6 +1049,8 @@
         L: function () { return scene.layout(); }, wisp: function () { return scene.wispPos(); }, muted: function () { return audio.isMuted(); },
         toast: toast, fmt: fmt, offline: offlineWelcome,
         refresh: function () { upSig = ''; magicBuilt = ''; C = core.calc(S); syncScene(); updateUI(); }, openGift: openGift, buyStage: function () { buyStage($('upList')); },
+        spawnBubble: function (golden) { return scene.spawnBubble(!!golden, 7); }, bubble: function () { return scene.bubblePos(); },
+        openQuests: openQuests, checkQuests: checkQuests, claimQuest: claimQuest,
       };
     }
     /*DEBUG-END*/

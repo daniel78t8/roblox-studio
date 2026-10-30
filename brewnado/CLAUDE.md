@@ -2,7 +2,9 @@
 
 Brewnado is a cozy witch-themed idle/clicker game (HTML5) made for **CrazyGames**.
 The player taps a cauldron to brew potions and buys Magic Hands (auto-clickers), helpers and upgrades.
-They can also upgrade the cauldron through 8 levels, trigger "Brewnados", catch wisps and restart with Moonstones (prestige).
+They can also upgrade the cauldron through 10 levels, trigger "Brewnados", catch wisps and restart with Moonstones (prestige).
+Version 2.0 is tuned for kids who want constant rewards: fast clicking builds a **combo** (up to +30 %, more with upgrades) and every 100 hits start a **FEVER** (clicks ×2, rainbow effects, faster music).
+Rare **jackpot** clicks (×40), **bubbles** to pop (golden ones pay ×6), three **quests** at a time with rewards, and a cauldron with a face that reacts to everything.
 
 - Plain JavaScript (ES5 style), Canvas 2D for the scene and DOM for the UI.
 - No dependencies, no bundler, no npm.
@@ -17,6 +19,7 @@ node sim/sim.js                  # balancing simulation (run after any economy c
 python3 test/functional.py       # gameplay, layouts at all CrazyGames sizes, performance, mocked SDK
 python3 test/regress.py          # regressions from an independent QA pass (SDK timing, saving, dialogs, toasts, keyboard)
 python3 test/features.py         # Magic Hands, cauldron levels, lucky clicks, daily gift
+python3 test/dopamine.py         # combo + FEVER, jackpots, bubbles, quests, new content, 2.0 save compatibility
 python3 test/shot.py 1280x720 en-US test/fixtures/state_mid.json   # quick screenshot -> dist/shot.png
 python3 test/screens.py          # screenshots of all screens -> dist/screens/
 python3 test/covers.py           # CrazyGames cover images -> dist/covers/
@@ -24,7 +27,7 @@ python3 test/video.py            # 18 s preview videos (needs ffmpeg) -> dist/vi
 ```
 
 Test requirements: Python 3, `pip install playwright pillow`, `python -m playwright install chromium`, and Node.js (tests build save states with `node`).
-All three test suites must pass before a release.
+All four test suites must pass before a release.
 
 ## Build outputs (generated – never edit `dist/` by hand)
 
@@ -41,16 +44,16 @@ The release builds strip everything between `/*DEBUG-START*/` and `/*DEBUG-END*/
 
 | File | What it contains |
 |---|---|
-| `src/data.js` | **All economy data and tuning**. Includes `HELPERS` (11 producers), `HAND` (Magic Hand), `STAGES` (8 cauldron levels, `STAGE_MULT` 1.3) and `UPGRADES` (71: tier, click, global, nado, wisp, hand). Also `ACHIEVEMENTS` (41, each +1 %), `MOON` (prestige formula), `PERKS` and `TUNE` (timings, multipliers, offline, lucky clicks, daily gift). Shared with the simulation. |
-| `src/core.js` | Pure economy logic, no DOM. `newState`, `calc` (all derived values, called "C" in main.js), costs/buying, `click` (with lucky clicks), `brewnado`, `tick`, wisps, `moonrise`, achievements, `offlineGain`, daily gift, `serialize`/`deserialize` (validates and clamps every field). |
+| `src/data.js` | **All economy data and tuning**. Includes `HELPERS` (13 producers), `HAND` (Magic Hand), `STAGES` (10 cauldron levels, `STAGE_MULT` 1.3) and `UPGRADES` (121: tier I–VI, click, global, nado, wisp, hand, combo, luck, bubble). Also `ACHIEVEMENTS` (59, each +1 %), `MOON` (prestige formula), `PERKS` (6), `QUESTS` (quest kinds and how targets grow) and `TUNE` (timings, multipliers, offline, lucky clicks, jackpots, combo, FEVER, bubbles, quests, daily gift). Shared with the simulation. |
+| `src/core.js` | Pure economy logic, no DOM. `newState`, `calc` (all derived values, called "C" in main.js), costs/buying, `click` (combo, FEVER, lucky clicks, jackpots), `brewnado`, `tick` (also breaks the combo), wisps, bubbles, quests (`ensureQuests`, `updateQuests`, `claimQuest`), `moonrise`, achievements, `offlineGain`, daily gift, `serialize`/`deserialize` (validates and clamps every field). |
 | `src/i18n.js` | EN/DE strings and number formatting (`fmt`: 1.15M / 1,15 Mio.). |
 | `src/icons.js` | Hand-made inline SVG icons (outline `#1d1030`). Includes `iconCauldron(level)`, `iconForUpgrade` (roman tier badges), `iconForAch` and the glove used for Magic Hands. |
 | `src/audio.js` | Procedural Web Audio: sound effects and a music-box loop, no audio files. Unlocks on the first gesture and respects the CrazyGames mute setting. |
 | `src/scene.js` | Canvas renderer, see "Scene" below. |
-| `src/main.js` | DOM UI (shop cards, tabs, dialogs, toast queue, tooltips, hints), SDK integration, storage, input, main loop, daily gift and the debug hooks. |
+| `src/main.js` | DOM UI (shop cards, tabs, quest bar + quest dialog, dialogs, toast queue, tooltips, hints, rolling potion counter, haptics on phones), SDK integration, storage, input, main loop, daily gift and the debug hooks. |
 | `src/style.css`, `src/index.html` | UI styles and the HTML template (`<!--SDK-->`, `/*FONTS*/`, `/*CSS*/`, `/*JS*/` placeholders filled by `build.py`). |
 | `assets/` | Subset Inter fonts (WOFF) and their OFL licence. |
-| `sim/sim.js` | Greedy-player simulation (active 5 clicks/s, casual 2 clicks/s, second run after a Moonrise). |
+| `sim/sim.js` | Greedy-player simulation (active 5 clicks/s, casual 2 clicks/s, both pause 3 s every 30 s; pops bubbles and claims quests; second run after a Moonrise). |
 | `test/fixtures/` | Saved game states used by tests and screenshots. |
 
 JS load order (concatenated by `build.py`): `data, core, i18n, icons, audio, scene, main`. Every file is an IIFE that adds to `window.BW`.
@@ -59,10 +62,11 @@ JS load order (concatenated by `build.py`): `data, core, i18n, icons, audio, sce
 
 `scene.js` covers:
 - **Background, baked once per resize:** sky, moon, mountains, forest, vignette.
-- **Cauldron:** body sprite cached per size, DPR and level, using the materials in `MAT[]`, a decoration layer and a pulsing glow layer.
-- **Around the cauldron:** fire with cached logs, helper visuals, Magic Hands that orbit the rim and tap it.
+- **Cauldron:** body sprite cached per size, DPR and level, using the materials in `MAT[]`, a decoration layer and a pulsing glow layer. A face drawn each frame (blinks, looks at wisps/bubbles, grins during combos).
+- **Around the cauldron:** fire with cached logs, helper visuals (incl. a sky portal and flying unicorns), Magic Hands that orbit the rim and tap it.
+- **Combo + FEVER:** the combo counter with its timer bar next to the cauldron, combo words, rainbow ring during FEVER.
 - **Particles:** drop, steam, spark, ember, smoke, confetti.
-- **Effects:** wisp, Brewnado tornado, rays, flash, shockwave rings, floating texts, potions flying to the counter.
+- **Effects:** wisp, bubbles, jackpot, Brewnado tornado, rays, flash, shockwave rings, floating texts, potions flying to the counter.
 - **Performance:** quality 1/0 (auto low quality when frames are slow) and a DPR cap.
 
 ## Rules – please keep these
@@ -93,10 +97,11 @@ Never rename existing state fields. New fields get a default in `newState()` and
 
 ### Economy and balance
 
-Change numbers only in `data.js`, then run `node sim/sim.js`. Current pacing for an active player:
-- 1M potions after about 6 min and 1B after about 17 min.
-- About 4T earned and ~34 Moonstones after 60 min.
-- A casual player reaches 1B after about 25 min.
+Change numbers only in `data.js`, then run `node sim/sim.js`. Current pacing for an active player (the sim claims quests right away, so real players are a bit slower):
+- 1M potions after about 1 min and 1B after about 7 min (2.0 is intentionally much faster at the start than 1.0).
+- About 190T earned and ~57 Moonstones after 60 min (the first Moonstone needs 1e9 potions).
+- A casual player reaches 1B after about 13 min and has ~12 Moonstones after 60 min.
+- Combo, FEVER, luck and quest rewards multiply each other. When tuning one of them, check the active player again.
 
 ### Art style
 
@@ -122,9 +127,6 @@ Change numbers only in `data.js`, then run `node sim/sim.js`. Current pacing for
 
 ## Ideas not built yet
 
-- Quests or missions with rewards.
-- A combo or frenzy meter for fast clicking.
-- More helpers and visuals for late game.
 - Cauldron skins or seasonal events.
-- A short sound and haptics polish pass.
+- Even more late-game helpers and quest kinds (e.g. "reach level X", "catch N golden bubbles").
 - Rewarded ads, only after CrazyGames selects the game for Full Launch.

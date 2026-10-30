@@ -21,12 +21,19 @@
     { body: ['#6ee0ad', '#279a64', '#0c4a2e'], rim: ['#b4f8d6', '#46c186', '#16603d'], band: '#0b3d26', bandHi: 'rgba(205,255,228,0.5)', riv: ['#05261a', '#d0ffe0'], feet: '#0b3d26', handle: '#30915f', lip: '#145a38', blot: 0.08, deco: 'runes', glow: '120,255,190' },
     { body: ['#c9b5ff', '#8063ea', '#3a2491'], hi: '#f2ecff', rim: ['#f4eeff', '#ad93ff', '#5a3fb8'], band: '#2d1a72', bandHi: 'rgba(255,255,255,0.65)', riv: ['#1c0f4d', '#ffffff'], feet: '#2d1a72', handle: '#9478f2', lip: '#4a30a0', blot: 0, deco: 'facets', glow: '210,190,255' },
     { body: ['#43323a', '#21171c', '#0a0608'], rim: ['#6a4640', '#40282a', '#1e1210'], band: '#0a0505', bandHi: 'rgba(255,150,70,0.55)', riv: ['#1a0a05', '#ff9a40'], feet: '#1d1418', handle: '#40282a', lip: '#2a1614', blot: 0.1, deco: 'cracks', glow: '255,120,30' },
-    { body: ['#33449a', '#18225f', '#080c2a'], rim: ['#9db3ff', '#5068d8', '#1e2a7a'], band: '#0a0f33', bandHi: 'rgba(190,210,255,0.6)', riv: ['#060a22', '#ffe27a'], feet: '#0a0f33', handle: '#4555b0', lip: '#16205a', blot: 0, deco: 'stars', glow: '255,240,190' }
+    { body: ['#33449a', '#18225f', '#080c2a'], rim: ['#9db3ff', '#5068d8', '#1e2a7a'], band: '#0a0f33', bandHi: 'rgba(190,210,255,0.6)', riv: ['#060a22', '#ffe27a'], feet: '#0a0f33', handle: '#4555b0', lip: '#16205a', blot: 0, deco: 'stars', glow: '255,240,190' },
+    { body: ['#ff9bd0', '#e0559e', '#7a1f50'], hi: '#ffe0f0', rim: ['#ffe6f3', '#ff8fc6', '#a03070'], band: '#7a1f50', bandHi: 'rgba(255,230,245,0.6)', riv: ['#5a1038', '#ffffff'], feet: '#7a1f50', handle: '#ff8fc6', lip: '#a03070', blot: 0, deco: 'candy', glow: '255,170,225' },
+    { body: ['#8a6cff', '#5a3fd0', '#24125e'], hi: '#e8deff', rim: ['#ffffff', '#c9b6ff', '#6a4ad0'], band: '#24125e', bandHi: 'rgba(255,255,255,0.7)', riv: ['#1a0c40', '#ffe27a'], feet: '#24125e', handle: '#b48cff', lip: '#3a2190', blot: 0, deco: 'rainbow', glow: '255,255,255' }
   ];
+  var RAINBOW = ['#ff5d6c', '#ffa34d', '#ffe27a', '#7ee86f', '#5ff3e6', '#8fb7ff', '#c08cff'];
   var CONF = ['#ffe27a', '#ff6f9c', '#5ff3e6', '#9a6bff', '#7ee86f', '#ffffff'];
   var BLOT = [[-0.55, 0.36, 0.13, 0], [0.36, 0.56, 0.11, 0], [-0.2, 0.78, 0.09, 0], [0.72, 0.3, 0.08, 0], [0.06, 0.42, 0.07, 1], [-0.76, 0.6, 0.07, 0], [0.52, 0.8, 0.08, 1], [-0.42, 0.14, 0.06, 1], [0.2, 0.2, 0.05, 0]];
   var wisp = null;
-  var counts = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  var counts = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  // combo / fever / bubbles / cauldron face
+  var combo = { n: 0, shown: 0, frac: 0, pop: 0, fade: 0 }, fever = false, feverT = 0;
+  var bubs = [], face = { blink: 0, nextBlink: 3, excite: 0, lookX: 0, lookY: 0, happy: 0 };
+  var unis = [], nextUni = 4;
   var PAL = [
     { a: '#c4ff9a', b: '#4fd65a', c: '#1c6e36', g: '90,255,120' },
     { a: '#b4fff6', b: '#2fd0c6', c: '#0f6563', g: '80,240,230' },
@@ -372,8 +379,15 @@
     burst(L.cx, L.cy - R * 0.1, '255,226,122', 30, 360);
   }
   function addPart(p) { if (parts.length < partCap) parts.push(p); }
-  function onClick(x, y, gainText, big, lucky) {
+  function onClick(x, y, gainText, big, lucky, comboN) {
     sqv += lucky ? 16 : 9;
+    face.excite = 1;
+    if (x != null) { face.lookX = Math.max(-1, Math.min(1, (x - L.cx) / L.R)); face.lookY = Math.max(-1, Math.min(1, (y - L.cy) / L.R)); }
+    var ns = Math.min(quality > 0 ? 10 : 4, Math.floor((comboN || 0) / 8) + (fever ? 4 : 0));
+    for (var si = 0; si < ns; si++) {
+      var sa = rnd(0, 6.283), sv = rnd(80, 260);
+      addPart({ k: 'spark', x: x != null ? x : L.cx, y: y != null ? y : L.cy, vx: Math.cos(sa) * sv, vy: Math.sin(sa) * sv - 60, life: 0, max: rnd(0.4, 0.8), r: rnd(1.6, 3.4), c: hexRgb(fever ? RAINBOW[si % RAINBOW.length] : CONF[si % CONF.length]) });
+    }
     if (lucky) {
       burst(x != null ? x : L.cx, y != null ? y : L.cy, '255,226,122', quality > 0 ? 22 : 12, 300);
       rings.push({ t: 0, max: 0.5, c: '255,226,122', x: x != null ? x : L.cx, y: y != null ? y : L.cy, small: true });
@@ -386,7 +400,7 @@
       addPart({ k: 'drop', x: sx + rnd(-0.1, 0.1) * R, y: sy, vx: Math.cos(a) * rnd(60, 170), vy: Math.sin(a) * rnd(140, 280), life: 0, max: rnd(0.5, 0.9), r: rnd(2, 4.5) * Math.max(0.7, R / 110) });
     }
     surf.push({ x: rnd(-0.6, 0.6), y: rnd(-0.4, 0.4), r: 0, max: rnd(0.08, 0.16), life: 0, ring: true });
-    if (gainText) floatText(x != null ? x : sx, (y != null ? y : sy) - R * 0.25, gainText, big ? 1.35 : 1, big ? '#ffe27a' : '#ffffff');
+    if (gainText) floatText(x != null ? x : sx, (y != null ? y : sy) - R * 0.25, gainText, big ? 1.35 : 1 + Math.min(0.18, (comboN || 0) / 250), big ? '#ffe27a' : (comboN || 0) >= 25 ? '#fff3b0' : '#ffffff');
   }
   function floatText(x, y, text, scale, color) {
     scale = scale || 1;
@@ -407,7 +421,8 @@
     var R = L.R;
     var spots = [[L.cx + R * 0.6, L.cy - R * 0.55], [L.cx - 1.9 * R, L.ground - R * 0.15], [L.cx - 1.12 * R, L.ground + 0.25 * R],
       [L.cx + 1.4 * R, L.ground - 0.25 * R], [L.cx - 1.42 * R, L.ground - 0.4 * R], [W * 0.5, L.horizon * 0.4],
-      [L.cx - 1.85 * R, L.horizon], [L.cx + 1.95 * R, L.horizon - 0.3 * R], [L.cx - 0.95 * R, L.cy - 0.55 * R], [L.cx, L.cy - 0.4 * R], [L.cx, L.cy - 0.1 * R]];
+      [L.cx - 1.85 * R, L.horizon], [L.cx + 1.95 * R, L.horizon - 0.3 * R], [L.cx - 0.95 * R, L.cy - 0.55 * R], [L.cx, L.cy - 0.4 * R], [L.cx, L.cy - 0.1 * R],
+      [W * 0.5, L.horizon * 0.3], [W * 0.15, L.horizon * 0.45]];
     var p = spots[i] || [L.cx, L.cy];
     return { x: Math.max(R * 0.3, Math.min(W - R * 0.3, p[0])), y: p[1] };
   }
@@ -417,12 +432,71 @@
     burst(p.x, p.y, '255,236,160', 16, 210);
     if (i === 5) nextBroom = 0;
     if (i === 8) { dragonBreath = 0.8; nextDragon = rnd(5, 9); }
+    if (i === 11) nextUni = 0;
   }
   function burst(x, y, color, n, speed) {
     for (var i = 0; i < (n || 18); i++) {
       var a = rnd(0, 6.283), v = rnd(40, speed || 220);
       addPart({ k: 'spark', x: x, y: y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 0, max: rnd(0.5, 1.1), r: rnd(1.5, 3.5), c: color || '255,240,160' });
     }
+  }
+  // Combo counter next to the cauldron. n = current combo, frac = time left (0..1).
+  function setCombo(n, frac) {
+    if (n > combo.n) combo.pop = 1;
+    combo.n = n; combo.frac = frac;
+    if (n >= 3) { combo.shown = n; combo.fade = 1; }
+  }
+  function comboPos() {
+    var R = L.R, x = L.cx + R * 1.5, y = L.cy - R * 0.62;
+    return { x: Math.min(W - R * 0.55, x), y: Math.max(R * 0.5 + 40, y) };
+  }
+  function comboWord(text, level) {
+    var p = comboPos();
+    floatText(p.x, p.y - L.R * 0.3, text, 1.25 + Math.min(0.6, level * 0.08), RAINBOW[level % RAINBOW.length]);
+    sqv += 10;
+    if (level >= 4) { shake = Math.max(shake, 0.5); rings.push({ t: 0, max: 0.45, c: hexRgb(RAINBOW[level % RAINBOW.length]), x: p.x, y: p.y, small: true }); }
+  }
+  function setFever(on) {
+    if (on && !fever) {
+      feverT = 0; flashA = Math.max(flashA, 0.3); flashRGB = '255,170,230'; shake = Math.max(shake, 0.8); sqv += 20;
+      rings.push({ t: 0, max: 0.8, c: '255,111,156' }); rings.push({ t: -0.12, max: 0.8, c: '95,243,230' }); rings.push({ t: -0.24, max: 0.8, c: '255,226,122' });
+      for (var i = 0; i < (quality > 0 ? 40 : 18); i++) addPart({ k: 'conf', x: L.cx + rnd(-0.4, 0.4) * L.R, y: L.cy - L.R * 0.1, vx: rnd(-300, 300), vy: rnd(-560, -220), life: 0, max: rnd(1.3, 2.2), r: rnd(3, 6) * Math.max(0.8, L.R / 140), c: RAINBOW[i % RAINBOW.length], rot: rnd(0, 6.28), vr: rnd(-12, 12) });
+    }
+    fever = !!on;
+  }
+  function jackpot(x, y) {
+    var R = L.R; x = x != null ? x : L.cx; y = y != null ? y : L.cy;
+    flashA = Math.max(flashA, 0.5); flashRGB = '255,226,122'; shake = Math.max(shake, 1.1); sqv += 30;
+    rings.push({ t: 0, max: 0.9, c: '255,226,122' }); rings.push({ t: -0.15, max: 0.9, c: '255,255,255' }); rings.push({ t: -0.3, max: 0.9, c: '255,111,156' });
+    for (var i = 0; i < (quality > 0 ? 70 : 30); i++) addPart({ k: 'conf', x: x + rnd(-0.2, 0.2) * R, y: y, vx: rnd(-340, 340), vy: rnd(-640, -260), life: 0, max: rnd(1.5, 2.6), r: rnd(3, 6.5) * Math.max(0.8, R / 140), c: i % 3 ? '#ffe27a' : CONF[i % CONF.length], rot: rnd(0, 6.28), vr: rnd(-14, 14) });
+    burst(x, y, '255,226,122', 40, 420);
+    face.happy = 2.5;
+  }
+  // Bubbles: float up out of the cauldron and can be popped for a reward.
+  function spawnBubble(golden, life) {
+    if (bubs.length >= 3) return false;
+    var R = L.R, r = Math.max(24, R * 0.2) * (golden ? 1.12 : 1);
+    bubs.push({ x0: L.cx + rnd(-0.55, 0.55) * R, y0: L.cy - R * 0.1, y: L.cy, x: L.cx, r: r, t: 0, life: life, golden: !!golden, ph: rnd(0, 6.28), top: Math.max(r + 70, H * 0.22) });
+    for (var i = 0; i < 6; i++) addPart({ k: 'drop', x: bubs[bubs.length - 1].x0, y: L.cy - R * 0.05, vx: rnd(-80, 80), vy: rnd(-260, -120), life: 0, max: rnd(0.4, 0.7), r: rnd(2, 3.5) });
+    return true;
+  }
+  function hitBubble(x, y) {
+    for (var i = bubs.length - 1; i >= 0; i--) {
+      var b = bubs[i], hr = b.r * 1.3;
+      if (b.t > 0.25 && (x - b.x) * (x - b.x) + (y - b.y) * (y - b.y) <= hr * hr) return i;
+    }
+    return -1;
+  }
+  function popBubble(i) {
+    var b = bubs[i];
+    if (!b) return null;
+    bubs.splice(i, 1);
+    var col = b.golden ? '255,226,122' : '159,231,255';
+    burst(b.x, b.y, col, quality > 0 ? 26 : 12, 300);
+    rings.push({ t: 0, max: 0.4, c: col, x: b.x, y: b.y, small: true });
+    for (var k = 0; k < 8; k++) { var a = k * 0.785; addPart({ k: 'drop', x: b.x + Math.cos(a) * b.r, y: b.y + Math.sin(a) * b.r, vx: Math.cos(a) * 160, vy: Math.sin(a) * 160, life: 0, max: 0.45, r: rnd(2, 3.5) }); }
+    if (b.golden) { flashA = Math.max(flashA, 0.18); flashRGB = '255,230,150'; face.happy = 1.5; }
+    return { x: b.x, y: b.y, golden: b.golden };
   }
   function startNado() { nado.on = true; nado.t = 0; shake = 1; burst(L.cx, L.cy, pal.g, 30, 320); }
 
@@ -506,6 +580,33 @@
     if (nextShoot <= 0) { shooting.push({ x: rnd(0.1, 0.9) * W, y: rnd(0.04, 0.3) * L.horizon, life: 0, max: 0.9, a: rnd(2.5, 2.9) }); nextShoot = rnd(6, 14); }
     for (i = shooting.length - 1; i >= 0; i--) { shooting[i].life += dt; if (shooting[i].life > shooting[i].max) shooting.splice(i, 1); }
     if (nado.on) { nado.t += dt; if (Math.random() < 54 * dt) burst(L.cx + rnd(-0.6, 0.6) * L.R, L.cy - rnd(0.2, 2.2) * L.R, pal.g, 1, 120); if (nado.t >= nado.dur) nado.on = false; }
+    combo.pop = Math.max(0, combo.pop - dt * 5);
+    if (combo.n < 3) combo.fade = Math.max(0, combo.fade - dt * 2.5);
+    if (fever) feverT += dt;
+    face.excite = Math.max(0, face.excite - dt * 4);
+    face.happy = Math.max(0, face.happy - dt);
+    face.nextBlink -= dt;
+    if (face.nextBlink <= 0) { face.blink = 0.14; face.nextBlink = rnd(2.5, 5.5); }
+    face.blink = Math.max(0, face.blink - dt);
+    var look = wisp ? wisp : bubs.length ? bubs[0] : null;
+    if (look) { face.lookX += (Math.max(-1, Math.min(1, (look.x - L.cx) / (L.R * 2))) - face.lookX) * Math.min(1, dt * 6); face.lookY += (-1 - face.lookY) * Math.min(1, dt * 6); }
+    else { face.lookX *= 1 - Math.min(1, dt * 1.5); face.lookY *= 1 - Math.min(1, dt * 1.5); }
+    for (i = bubs.length - 1; i >= 0; i--) {
+      var bu = bubs[i]; bu.t += dt;
+      var k5 = Math.min(1, bu.t / bu.life), ease = 1 - Math.pow(1 - k5, 1.6);
+      bu.y = bu.y0 + (bu.top - bu.y0) * ease;
+      bu.x = Math.max(bu.r + 6, Math.min(W - bu.r - 6, bu.x0 + Math.sin(bu.t * 1.7 + bu.ph) * L.R * 0.35 * Math.min(1, bu.t)));
+      if (bu.t >= bu.life) { bubs.splice(i, 1); burst(bu.x, bu.y, '200,240,255', 8, 120); }
+    }
+    if (counts[11] > 0) {
+      nextUni -= dt;
+      if (nextUni <= 0) { unis.push({ x: W + 80, y: rnd(0.12, 0.38) * L.horizon, v: rnd(0.14, 0.2) * W + 70, ph: rnd(0, 6) }); nextUni = Math.max(7, 30 - 3.5 * Math.log2(counts[11] + 1)) * rnd(0.7, 1.3); }
+    }
+    for (i = unis.length - 1; i >= 0; i--) {
+      var un = unis[i]; un.x -= un.v * dt;
+      if (Math.random() < 40 * dt) addPart({ k: 'spark', x: un.x + 26, y: un.y + Math.sin(t * 3 + un.ph) * 6 + 4, vx: 30, vy: rnd(-10, 10), life: 0, max: 0.9, r: rnd(1.4, 2.6), c: hexRgb(RAINBOW[Math.floor(Math.random() * RAINBOW.length)]) });
+      if (un.x < -100) unis.splice(i, 1);
+    }
     if (wisp) {
       wisp.t += dt;
       var wp = wispPos(wisp); wisp.x = wp.x; wisp.y = wp.y;
@@ -563,6 +664,8 @@
       ctx.globalAlpha = blink; ctx.fillStyle = '#f4ffc8';
       ctx.beginPath(); ctx.arc(fx, fyy, 1.5, 0, 6.283); ctx.fill(); ctx.globalAlpha = 1;
     }
+    if (counts[12] > 0) drawPortal();
+    for (i = 0; i < unis.length; i++) drawUnicorn(unis[i]);
     // brooms
     for (i = 0; i < brooms.length; i++) drawBroom(brooms[i]);
     if (counts[6] > 0) drawBog();
@@ -574,6 +677,7 @@
     var fl = 0.34 + 0.05 * Math.sin(t * 9) + 0.03 * Math.sin(t * 21) + (dragonBreath > 0 ? 0.15 : 0);
     glowE(L.cx, L.ground + R * 0.05, R * 2.3, R * 0.7, '255,130,50', fl);
     if (nado.on) drawRays();
+    if (fever) drawFeverGlow();
     if (counts[8] > 0) drawDragon();
     drawCauldron();
     drawHands();
@@ -629,6 +733,8 @@
       ctx.fillStyle = tx.c; ctx.fillText(tx.text, tx.x, tx.y);
     }
     ctx.globalAlpha = 1;
+    for (i = 0; i < bubs.length; i++) drawBubble(bubs[i]);
+    drawCombo();
     // potions flying to the counter
     var img = potionImg && potionImg.complete && potionImg.naturalWidth ? potionImg : null;
     for (i = 0; i < flies.length; i++) {
@@ -804,11 +910,26 @@
       crackPath(R); ctx.stroke();
     } else if (M.deco === 'stars') {
       for (i = 0; i < DOTS.length; i++) { ctx.fillStyle = i % 3 ? '#ffffff' : '#ffe27a'; star4(DOTS[i][0] * R, DOTS[i][1] * R, R * (i % 3 ? 0.022 : 0.04)); }
+    } else if (M.deco === 'candy') {
+      ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = R * 0.11; ctx.lineCap = 'butt';
+      ctx.beginPath();
+      for (i = -4; i <= 4; i++) { ctx.moveTo(i * R * 0.38 - R * 0.5, R * 1.1); ctx.lineTo(i * R * 0.38 + R * 0.5, 0); }
+      ctx.stroke();
+      ctx.fillStyle = '#ffffff';
+      [[-0.55, 0.45, 0.04], [0.42, 0.7, 0.03], [0.1, 0.88, 0.025]].forEach(function (p) { star4(p[0] * R, p[1] * R, p[2] * R); });
+    } else if (M.deco === 'rainbow') {
+      ctx.lineWidth = R * 0.075;
+      for (i = 0; i < RAINBOW.length; i++) { ctx.strokeStyle = RAINBOW[i]; ctx.beginPath(); ctx.ellipse(0, R * 1.35, R * (1.45 - i * 0.075), R * (0.95 - i * 0.075), 0, Math.PI * 1.05, Math.PI * 1.95); ctx.stroke(); }
+      for (i = 0; i < DOTS.length; i += 2) { ctx.fillStyle = '#ffffff'; star4(DOTS[i][0] * R, DOTS[i][1] * R, R * 0.03); }
     }
     ctx.lineCap = 'butt';
   }
   function decoGlow(M, R) {
     var i;
+    if (M.deco === 'candy' || M.deco === 'rainbow') {
+      for (i = 0; i < DOTS.length; i++) { var gc = M.deco === 'candy' ? (i % 2 ? '255,190,235' : '255,255,255') : hexRgb(RAINBOW[i % RAINBOW.length]); ctx.drawImage(glowSprite(gc), DOTS[i][0] * R - R * 0.1, DOTS[i][1] * R - R * 0.1, R * 0.2, R * 0.2); }
+      return;
+    }
     if (M.deco === 'cracks') {
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
       [[0.12, 0.2], [0.3, 0.09], [0.9, 0.025]].forEach(function (g) { ctx.strokeStyle = 'rgba(255,140,40,' + g[0] + ')'; ctx.lineWidth = Math.max(1, R * g[1]); crackPath(R); ctx.stroke(); });
@@ -839,6 +960,7 @@
     ctx.drawImage(bounceC, -1.3 * R, -0.05 * R, 2.6 * R, 1.15 * R);
     if (decoC && quality > 0) { ctx.globalAlpha = 0.55 + 0.45 * Math.sin(t * 2.2); ctx.drawImage(decoC, -1.3 * R, -0.05 * R, 2.6 * R, 1.15 * R); }
     ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+    drawFace(R);
     var M = MAT[stage] || MAT[0];
     ctx.lineJoin = 'round'; ctx.strokeStyle = O; ctx.lineWidth = Math.max(2.5, R * 0.04);
     // rim
@@ -1104,6 +1226,108 @@
     ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.beginPath(); ctx.ellipse(x - s * 0.38, y - s * 1.62, s * 0.22, s * 0.13, -0.6, 0, 6.283); ctx.fill();
     ctx.lineCap = 'butt';
   }
+  // Cute face on the cauldron: blinks, looks at wisps and bubbles, grins while you click.
+  function drawFace(R) {
+    var ex = R * 0.3, ey = R * 0.52, er = R * 0.115, happy = face.happy > 0 || fever || combo.n >= 25;
+    var px = face.lookX * er * 0.38, py = face.lookY * er * 0.32;
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.strokeStyle = O; ctx.lineWidth = Math.max(2, R * 0.035);
+    ctx.globalAlpha = 0.5; ctx.fillStyle = fever ? RAINBOW[Math.floor(t * 8) % RAINBOW.length] : '#ff6f9c';
+    ctx.beginPath(); ctx.ellipse(-ex * 1.55, ey + R * 0.12, R * 0.09, R * 0.05, 0, 0, 6.283); ctx.ellipse(ex * 1.55, ey + R * 0.12, R * 0.09, R * 0.05, 0, 0, 6.283); ctx.fill();
+    ctx.globalAlpha = 1;
+    for (var k = -1; k <= 1; k += 2) {
+      var x = k * ex;
+      if (happy) { ctx.beginPath(); ctx.moveTo(x - er * 0.85, ey + er * 0.25); ctx.quadraticCurveTo(x, ey - er * 1.1, x + er * 0.85, ey + er * 0.25); ctx.stroke(); continue; }
+      if (face.blink > 0) { ctx.beginPath(); ctx.moveTo(x - er * 0.8, ey); ctx.lineTo(x + er * 0.8, ey); ctx.stroke(); continue; }
+      ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.ellipse(x, ey, er, er * 1.12, 0, 0, 6.283); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = O; ctx.beginPath(); ctx.arc(x + px, ey + py, er * 0.55, 0, 6.283); ctx.fill();
+      ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(x + px - er * 0.2, ey + py - er * 0.22, er * 0.2, 0, 6.283); ctx.fill();
+    }
+    var my = ey + R * 0.2, mw = R * 0.15;
+    if (face.excite > 0.05 || happy) {
+      var open = Math.max(face.excite, happy ? 0.7 : 0);
+      ctx.fillStyle = '#5a1030'; ctx.beginPath(); ctx.moveTo(-mw, my - R * 0.02); ctx.quadraticCurveTo(0, my + R * (0.05 + 0.13 * open), mw, my - R * 0.02); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#ff8fb0'; ctx.beginPath(); ctx.ellipse(0, my + R * 0.045 * open + R * 0.01, mw * 0.45, R * 0.03 * open + 0.5, 0, 0, Math.PI); ctx.fill();
+    } else {
+      ctx.beginPath(); ctx.moveTo(-mw * 0.8, my); ctx.quadraticCurveTo(0, my + R * 0.08, mw * 0.8, my); ctx.stroke();
+    }
+    ctx.lineCap = 'butt';
+  }
+  function drawFeverGlow() {
+    var R = L.R, cy = L.cy + R * 0.35, i, n = quality > 0 ? 12 : 6;
+    var col = hexRgb(RAINBOW[Math.floor(feverT * 6) % RAINBOW.length]);
+    glow(L.cx, cy, R * 2.4, col, 0.35 + 0.1 * Math.sin(t * 10));
+    ctx.globalCompositeOperation = 'lighter'; ctx.lineCap = 'round';
+    for (i = 0; i < n; i++) {
+      var a = t * 2.4 + i * 6.283 / n;
+      ctx.strokeStyle = RAINBOW[i % RAINBOW.length]; ctx.globalAlpha = 0.7; ctx.lineWidth = Math.max(3, R * 0.06);
+      ctx.beginPath(); ctx.ellipse(L.cx, cy, R * 1.45, R * 0.9, 0, a, a + 0.35); ctx.stroke();
+    }
+    ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; ctx.lineCap = 'butt';
+  }
+  function drawBubble(b) {
+    var a = Math.min(1, b.t / 0.25, (b.life - b.t) / 0.6), wob = 1 + Math.sin(b.t * 7 + b.ph) * 0.05, r = b.r;
+    ctx.save(); ctx.globalAlpha = Math.max(0, a); ctx.translate(b.x, b.y); ctx.scale(wob, 2 - wob);
+    if (quality > 0) glow(0, 0, r * 1.9, b.golden ? '255,210,90' : '140,220,255', 0.45);
+    ctx.fillStyle = b.golden ? 'rgba(255,211,107,0.6)' : 'rgba(159,231,255,0.32)';
+    ctx.strokeStyle = O; ctx.lineWidth = Math.max(2.5, r * 0.1);
+    ctx.beginPath(); ctx.arc(0, 0, r, 0, 6.283); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = b.golden ? '#fff3b0' : 'rgba(255,255,255,0.9)'; ctx.lineWidth = Math.max(2, r * 0.12); ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.arc(0, 0, r * 0.68, Math.PI * 1.1, Math.PI * 1.45); ctx.stroke(); ctx.lineCap = 'butt';
+    var img = potionImg && potionImg.complete && potionImg.naturalWidth ? potionImg : null;
+    if (img) ctx.drawImage(img, -r * 0.5, -r * 0.45, r, r);
+    if (b.golden) { ctx.fillStyle = '#ffffff'; star4(r * 0.55, -r * 0.55, r * 0.22); star4(-r * 0.6, r * 0.5, r * 0.14); }
+    ctx.restore();
+  }
+  function drawCombo() {
+    if (combo.fade <= 0.01 || combo.shown < 3) return;
+    var R = L.R, p = comboPos(), n = combo.shown, lvl = n >= 100 ? 4 : n >= 50 ? 3 : n >= 25 ? 2 : n >= 10 ? 1 : 0;
+    var col = fever ? RAINBOW[Math.floor(t * 10) % RAINBOW.length] : ['#ffffff', '#ffe27a', '#ffa34d', '#ff6f9c', '#5ff3e6'][lvl];
+    var size = Math.round(Math.max(22, R * 0.3) * (1 + combo.pop * 0.35) * (1 + Math.min(0.35, lvl * 0.08)));
+    ctx.save(); ctx.globalAlpha = combo.fade; ctx.translate(p.x, p.y); ctx.rotate(-0.12 + Math.sin(t * 3) * 0.03);
+    ctx.textAlign = 'center'; ctx.lineJoin = 'round';
+    ctx.font = '900 ' + size + 'px BrewBlack, sans-serif';
+    ctx.lineWidth = Math.max(4, size * 0.2); ctx.strokeStyle = O; ctx.strokeText('×' + n, 0, 0);
+    ctx.fillStyle = col; ctx.fillText('×' + n, 0, 0);
+    var ls = Math.round(Math.max(11, size * 0.36));
+    ctx.font = '800 ' + ls + 'px BrewDisplay, sans-serif';
+    ctx.lineWidth = Math.max(3, ls * 0.28); ctx.strokeText(comboLabel, 0, ls * 1.15); ctx.fillStyle = '#ffffff'; ctx.fillText(comboLabel, 0, ls * 1.15);
+    var bw = size * 1.5, bh = Math.max(4, size * 0.13), by = ls * 1.55;
+    ctx.fillStyle = O; roundRect(-bw / 2 - 2, by - 2, bw + 4, bh + 4, bh); ctx.fill();
+    ctx.fillStyle = col; if (combo.frac > 0 && combo.n >= 3) { roundRect(-bw / 2, by, bw * combo.frac, bh, bh / 2); ctx.fill(); }
+    ctx.restore();
+  }
+  var comboLabel = 'COMBO';
+  function drawPortal() {
+    var R = L.R, p = helperSpot(12), s = Math.max(20, R * 0.32) * (1 + Math.min(0.5, Math.log2(counts[12] + 1) * 0.06));
+    if (quality > 0) glow(p.x, p.y, s * 2.2, '120,240,230', 0.4 + 0.1 * Math.sin(t * 3));
+    ctx.save(); ctx.translate(p.x, p.y);
+    ctx.fillStyle = '#1a1036'; ctx.strokeStyle = O; ctx.lineWidth = Math.max(2.5, s * 0.1);
+    ctx.beginPath(); ctx.ellipse(0, 0, s * 0.8, s, 0, 0, 6.283); ctx.fill(); ctx.stroke();
+    ctx.lineCap = 'round';
+    for (var i = 0; i < 4; i++) {
+      var a = -t * (2 + i * 0.6) + i * 1.6, rr = 1 - i * 0.2;
+      ctx.strokeStyle = ['#5ff3e6', '#9a6bff', '#ff9be9', '#ffffff'][i]; ctx.lineWidth = Math.max(2, s * 0.09);
+      ctx.beginPath(); ctx.ellipse(0, 0, s * 0.7 * rr, s * 0.88 * rr, 0, a, a + 3.6); ctx.stroke();
+    }
+    ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(0, 0, s * 0.1, 0, 6.283); ctx.fill();
+    ctx.restore(); ctx.lineCap = 'butt';
+  }
+  function drawUnicorn(u) {
+    var y = u.y + Math.sin(t * 3 + u.ph) * 6, s = Math.max(16, L.R * 0.2), i;
+    ctx.save(); ctx.translate(u.x, y);
+    ctx.lineCap = 'round';
+    for (i = 0; i < 5; i++) { ctx.strokeStyle = RAINBOW[i]; ctx.globalAlpha = 0.75; ctx.lineWidth = s * 0.16; ctx.beginPath(); ctx.moveTo(s * 0.9, (i - 2) * s * 0.15); ctx.lineTo(s * 3.4, (i - 2) * s * 0.15 + Math.sin(t * 4 + i) * s * 0.1); ctx.stroke(); }
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#ffffff'; ctx.strokeStyle = O; ctx.lineWidth = Math.max(1.8, s * 0.1); ctx.lineJoin = 'round';
+    ctx.beginPath(); ctx.ellipse(0, 0, s * 0.95, s * 0.5, 0, 0, 6.283); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(-s * 0.95, -s * 0.45, s * 0.42, s * 0.32, -0.4, 0, 6.283); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#ffd36b'; ctx.beginPath(); ctx.moveTo(-s * 1.1, -s * 0.7); ctx.lineTo(-s * 1.45, -s * 1.25); ctx.lineTo(-s * 0.92, -s * 0.78); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#b48cff'; ctx.beginPath(); ctx.ellipse(-s * 0.55, -s * 0.55, s * 0.3, s * 0.18, -0.6, 0, 6.283); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = O; ctx.beginPath(); ctx.arc(-s * 1.05, -s * 0.5, s * 0.07, 0, 6.283); ctx.fill();
+    ctx.strokeStyle = O; ctx.lineWidth = s * 0.16;
+    [-0.5, 0.5].forEach(function (lx) { ctx.beginPath(); ctx.moveTo(lx * s, s * 0.35); ctx.lineTo(lx * s + Math.sin(t * 10 + lx) * s * 0.2, s * 0.85); ctx.stroke(); });
+    ctx.restore(); ctx.lineCap = 'butt';
+  }
   function drawBroom(b) {
     var y = b.y + Math.sin(t * 3 + b.ph) * 6, s = Math.max(16, L.R * 0.2);
     ctx.save(); ctx.translate(b.x, y); ctx.rotate(-0.08);
@@ -1212,6 +1436,10 @@
     flyPotions: flyPotions, setTarget: setTarget, takeArrivals: takeArrivals, poof: poof,
     setHands: setHands, stageUp: stageUp, onHandTap: function (fn) { onHandTap = fn; }, handsShown: function () { return hv.length; },
     spawnWisp: spawnWisp, hitWisp: hitWisp, catchWisp: catchWisp, wispActive: wispActive,
+    setCombo: setCombo, comboWord: comboWord, comboPos: comboPos, setFever: setFever, jackpot: jackpot,
+    setComboLabel: function (s) { comboLabel = s; },
+    spawnBubble: spawnBubble, hitBubble: hitBubble, popBubble: popBubble, bubbleCount: function () { return bubs.length; },
+    bubblePos: function () { return bubs.length ? { x: bubs[0].x, y: bubs[0].y } : null; },
     hitCauldron: hitCauldron, layout: function () { return L; },
     setQuality: function (q) {
       if (q === quality) return;

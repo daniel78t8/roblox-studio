@@ -71,7 +71,7 @@ with sync_playwright() as p:
     check('next level card shows Silver', 'Silver Cauldron' in page.evaluate("() => document.querySelector('#upList .item.stage').textContent"))
     page.evaluate('() => window.__bw.save()'); page.reload(); page.wait_for_timeout(1200)
     st_after = S(page); check('cauldron level survives reload', st_after['stage'] == 1, (st_after['stage'], st_after['potions']))
-    page.evaluate("() => { const S = window.__bw.S(); S.stage = 7; window.__bw.refresh(); window.__bw.setTab('upgrades'); }"); page.wait_for_timeout(200)
+    page.evaluate("() => { const S = window.__bw.S(); S.stage = 9; window.__bw.refresh(); window.__bw.setTab('upgrades'); }"); page.wait_for_timeout(200)
     check('max level card', 'max' in page.evaluate("() => document.querySelector('#upList .item.stage').className"))
     b.close()
 
@@ -81,8 +81,11 @@ with sync_playwright() as p:
       window.__bw.click(1); Math.random = r0; return [window.__bw.S().potions - p0, cp, window.__bw.S().lucky]; }""")
     check('lucky click gives ×7', abs(r[0] - 7 * r[1]) < 1e-6 and r[2] == 1, r)
     r = page.evaluate("""() => { const r0 = Math.random; Math.random = () => 0.5; const p0 = window.__bw.S().potions, cp = window.__bw.C().clickNow;
-      window.__bw.click(1); Math.random = r0; return [window.__bw.S().potions - p0, cp]; }""")
-    check('normal click unchanged', abs(r[0] - r[1]) < 1e-6, r)
+      window.__bw.click(1); Math.random = r0; return [window.__bw.S().potions - p0, cp, window.__bw.S().combo]; }""")
+    check('normal click (2nd combo hit = +1%)', abs(r[0] - r[1] * 1.01) < 1e-6 and r[2] == 2, r)
+    r = page.evaluate("""() => { const r0 = Math.random; Math.random = () => 0.001; const S = window.__bw.S(), p0 = S.potions, cp = window.__bw.C().clickNow, m = window.__bw.core.comboMult(window.__bw.C(), S.combo + 1);
+      window.__bw.click(1); Math.random = r0; return [window.__bw.S().potions - p0, cp * m * 40, window.__bw.S().jackpots]; }""")
+    check('jackpot click gives ×40', abs(r[0] - r[1]) < 1e-6 and r[2] == 1, r)
     b.close()
 
     # ---------------------------------------------------------------- Daily gift
@@ -131,7 +134,7 @@ with sync_playwright() as p:
     b, page = open_page(p, make_state(potions=10))
     r = page.evaluate("""() => { const d = window.__bw.core.deserialize(JSON.stringify({ v: 1, hands: -4, stage: 99, lucky: 'x', daily: { day: 5, streak: -1 } }));
       return [d.hands, d.stage, d.lucky, d.daily.day, d.daily.streak]; }""")
-    check('save validation of new fields', r == [0, 7, 0, '', 0], r)
+    check('save validation of new fields', r == [0, 9, 0, '', 0], r)
     b.close()
 
 check('no page errors', not errors, errors[:5])

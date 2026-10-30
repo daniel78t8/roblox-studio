@@ -209,3 +209,33 @@ svg{display:block}
 #tooltip .d{color:#d6cbf0;margin-bottom:.3em}
 #tooltip .l{color:#b9a9dd}
 #tooltip .l em{font-style:normal;color:#fff}
+/* quests */
+#questBar{display:flex;align-items:center;gap:.45em;margin:.55em .55em 0;padding:.28em .6em .28em .35em;text-align:left;cursor:pointer;
+  border-radius:.85em;background:var(--grain),linear-gradient(180deg,#3d2a63,#2b1b4c);border:2px solid #6c4bb0;box-shadow:inset 0 1px 0 rgba(255,255,255,.07),0 3px 0 #140b2b}
+#questBar:active{transform:translateY(2px);box-shadow:0 1px 0 #140b2b}
+#questBar .qi{flex:0 0 auto;width:1.85em;height:1.85em}
+#questBar .qi svg{width:100%;height:100%}
+#questBar .qm{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:.2em}
+#questBar .qt{font-family:BrewDisplay;font-weight:800;font-size:.84em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#questBar .qp{display:block;height:.45em;border-radius:1em;background:#1a0f33;overflow:hidden}
+#questBar .qp i{display:block;height:100%;width:0;border-radius:1em;background:linear-gradient(90deg,#ffb43d,#ffe27a);transition:width .25s linear}
+#questBar .qn{flex:0 0 auto;font-family:BrewDisplay;font-weight:800;font-size:.8em;color:#ffd36b;white-space:nowrap}
+#questBar.ready{border-color:#ffe27a;animation:glow .8s ease-in-out infinite alternate}
+#questBar.ready .qt{color:#ffe9a8}
+#questBar.pop{animation:qpop .45s ease-out}
+@keyframes qpop{30%{transform:scale(1.05) rotate(-1deg)}60%{transform:scale(.98)}}
+.qintro{margin:0 0 .6em}
+.quest{display:grid;grid-template-columns:2.6em 1fr auto;gap:.6em;align-items:center;padding:.5em .55em;margin-bottom:.45em;border-radius:.85em;background:#24163f;border:2px solid #3d2770}
+.quest .ico svg{width:2.6em;height:2.6em}
+.quest .name{font-family:BrewDisplay;font-weight:800;font-size:.95em}
+.quest .prog{margin:.3em 0 .2em}
+.quest .prog div{background:linear-gradient(90deg,#ffb43d,#ffe27a)}
+.quest.done{border-color:#ffe27a;background:#3a2650;box-shadow:0 0 14px rgba(255,226,122,.35)}
+.quest.done .prog div{background:linear-gradient(90deg,#3fbf54,#b6ff8a)}
+.qright{display:flex;flex-direction:column;align-items:flex-end;gap:.35em}
+.qclaim{padding:.4em .8em;font-size:.9em}
+.quest.done .qclaim{animation:claimGlow .7s ease-in-out infinite alternate}
+@keyframes claimGlow{from{box-shadow:0 3px 0 #1d1030,0 0 0 rgba(126,232,111,0)}to{box-shadow:0 3px 0 #1d1030,0 0 14px rgba(126,232,111,.9)}}
+.qtotal{text-align:center;margin-top:.3em}
+.buff.fever{border-color:#ff6f9c;animation:feverChip .5s linear infinite alternate}
+@keyframes feverChip{from{border-color:#ff6f9c}to{border-color:#5ff3e6}}

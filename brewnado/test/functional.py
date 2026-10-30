@@ -56,7 +56,10 @@ with sync_playwright() as p:
         page.mouse.click(c['x'], c['y'])
         page.wait_for_timeout(40)
     s = S(page)
-    check('20 mouse clicks brew 20 potions (+6 per lucky click)', abs(s['potions'] - 20 - 6 * s['lucky']) < 0.5 and s['clicks'] == 20, (s['potions'], s['clicks'], s['lucky']))
+    # one unbroken combo: hit i is worth 1 + 1% * (i - 1); lucky clicks add 6x, jackpots 39x of their hit
+    base, extra = 20 + 0.01 * 190, 6 * s['lucky'] + 39 * s['jackpots']
+    check('20 mouse clicks brew 20 potions (+combo, lucky, jackpots)', base + extra - 1e-6 <= s['potions'] <= base + extra * 1.19 + 1e-6 and s['clicks'] == 20 and s['comboBest'] == 20,
+          (s['potions'], s['clicks'], s['lucky'], s['jackpots'], s['comboBest']))
     page.wait_for_timeout(150)
     check('hint hidden after 5 clicks', page.evaluate("() => document.getElementById('hint').classList.contains('hidden')"))
     cls = page.evaluate("() => document.querySelector('#helperList .item.helper').className")
@@ -161,7 +164,7 @@ with sync_playwright() as p:
     b.close()
 
     # ------------------------------------------------------------ moonrise
-    st = make_state(helpers=[40, 30, 20, 10, 5, 2, 0, 0, 0, 0, 0], potions=5e11, runEarned=1e12, allEarned=1e12, clicks=900, runClicks=900, tut={'helper': True, 'up': True, 'upToast': True})
+    st = make_state(helpers=[40, 30, 20, 10, 5, 2, 0, 0, 0, 0, 0], potions=5e11, runEarned=2.7e13, allEarned=2.7e13, clicks=900, runClicks=900, tut={'helper': True, 'up': True, 'upToast': True})
     b, ctx, page = new_page(p, state=st)
     page.click('.tab[data-tab="magic"]'); page.wait_for_timeout(200)
     dis = page.evaluate("() => document.getElementById('mgBtn').disabled")
@@ -169,10 +172,10 @@ with sync_playwright() as p:
     page.click('#mgBtn'); page.wait_for_timeout(150)
     page.click('#modal .btn.moon'); page.wait_for_timeout(250)
     s = S(page)
-    check('Moonrise grants 21 stones and resets the night', s['stones'] == 21 and s['potions'] < 50 and s['helpers'][2] == 0 and s['rebirths'] == 1, (s['stones'], s['potions'], s['helpers']))
+    check('Moonrise grants 30 stones and resets the night', s['stones'] == 30 and s['potions'] < 50 and s['helpers'][2] == 0 and s['rebirths'] == 1, (s['stones'], s['potions'], s['helpers']))
     check('Moonlit Start perk gives 10 spoons + 2 frogs', s['helpers'][0] == 10 and s['helpers'][1] == 2)
     cc = page.evaluate('() => window.__bw.C()')
-    check('stones boost production (+210%)', abs(cc['stoneMult'] - 3.1) < 1e-9, cc['stoneMult'])
+    check('stones boost production (+300%)', abs(cc['stoneMult'] - 4.0) < 1e-9, cc['stoneMult'])
     b.close()
 
     # ------------------------------------------------------------ layouts

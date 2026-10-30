@@ -80,6 +80,37 @@
     '<ellipse cx="32" cy="28" rx="25" ry="7" fill="#7f5cff" ' + SW + '/>' +
     '<path d="M18 28c4-5 14-6 18-2 3 3-1 6-5 5 7 0 9-6 3-8 9 1 12 5 6 9" fill="none" stroke="#e6d9ff" stroke-width="2.5" stroke-linecap="round"/>' +
     sparkle(44, 12, 6, '#fff1a8') + sparkle(20, 10, 3.5, '#9fd9ff') + '<circle cx="54" cy="18" r="1.8" fill="#fff"/>');
+  I.unicorn = svg(
+    '<path d="M6 30c4-6 10-6 12-2" fill="none" stroke="#ff6f9c" stroke-width="5" stroke-linecap="round"/>' +
+    '<path d="M7 36c4-5 9-5 11-1" fill="none" stroke="#ffd36b" stroke-width="4" stroke-linecap="round"/>' +
+    '<path d="M16 44c0-12 8-22 20-24l6-2 10 6c3 2 4 6 2 8l-4 2-8-2c0 8-2 14-6 18H24c-5 0-8-2-8-6z" fill="#ffffff" ' + SW + '/>' +
+    '<path d="M44 18l8-14 0 16z" fill="#ffd36b" ' + SW + '/>' +
+    '<path d="M30 22c-2-6 2-12 8-12-2 4 0 6 2 8" fill="#b48cff" ' + SW + '/>' +
+    '<circle cx="45" cy="25" r="2.6" fill="' + O + '"/><circle cx="46" cy="24" r="1" fill="#fff"/>' +
+    '<circle cx="50" cy="31" r="2" fill="#ff93b6"/>' + sparkle(56, 48, 5) + sparkle(10, 54, 3.5, '#5ff3e6'));
+  I.portal = svg(
+    '<ellipse cx="32" cy="34" rx="22" ry="26" fill="#2b2547" ' + SW + '/>' +
+    '<ellipse cx="32" cy="34" rx="15" ry="19" fill="#5ff3e6" ' + SW + '/>' +
+    '<ellipse cx="32" cy="34" rx="8" ry="11" fill="#9a6bff"/>' +
+    '<path d="M32 26v8l5 4" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round"/>' +
+    sparkle(52, 10, 5) + sparkle(12, 12, 3.5, '#ff9be9') + '<circle cx="54" cy="56" r="2" fill="#fff"/>');
+  // combo / luck / bubble / quest icons
+  I.combo = svg('<path d="M36 4L14 36h14l-6 24 28-36H34z" fill="#ffe27a" ' + SW + '/>' +
+    '<path d="M33 12l-10 18" stroke="#fff" stroke-width="3" stroke-linecap="round" opacity=".7"/>' + sparkle(52, 50, 6, '#ff6f9c') + sparkle(10, 14, 4, '#5ff3e6'));
+  I.fever = svg('<path d="M32 4c4 10 18 16 18 32 0 12-8 22-18 22S14 48 14 36c0-8 4-12 8-16 0 6 3 9 6 9-2-9 0-18 4-25z" fill="#ff6f9c" ' + SW + '/>' +
+    '<path d="M32 30c3 5 9 8 9 15 0 6-4 10-9 10s-9-4-9-10c0-4 2-6 4-8 0 3 2 4 3 4-1-4 0-8 2-11z" fill="#ffe27a"/>' + sparkle(54, 12, 5, '#5ff3e6'));
+  I.jackpot = svg('<circle cx="32" cy="34" r="22" fill="#ffcf4a" ' + SW + '/><circle cx="32" cy="34" r="15" fill="#ffe27a" stroke="#d79a1e" stroke-width="3"/>' +
+    '<path d="M27 26h10l-6 18" stroke="' + O + '" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>' +
+    sparkle(52, 10, 7, '#fff') + sparkle(10, 12, 4) + sparkle(56, 54, 4, '#ff9be9'));
+  I.bubble = svg('<circle cx="32" cy="34" r="22" fill="#9fe7ff" fill-opacity=".45" ' + SW + '/>' +
+    '<path d="M20 26a14 14 0 0 1 10-8" stroke="#fff" stroke-width="4" fill="none" stroke-linecap="round"/><circle cx="42" cy="44" r="3" fill="#fff" opacity=".8"/>' +
+    '<circle cx="54" cy="12" r="5" fill="#9fe7ff" fill-opacity=".5" ' + SW + '/>');
+  I.bubbleGold = svg('<circle cx="32" cy="34" r="22" fill="#ffd36b" fill-opacity=".75" ' + SW + '/>' +
+    '<path d="M20 26a14 14 0 0 1 10-8" stroke="#fff" stroke-width="4" fill="none" stroke-linecap="round"/>' + sparkle(40, 42, 6, '#fff') + sparkle(54, 10, 5));
+  I.scroll = svg('<path d="M16 10h30c4 0 6 3 6 6v34c0 4-3 6-6 6H18" fill="#f2dfb0" ' + SW + '/>' +
+    '<path d="M18 56c-4 0-6-3-6-6s2-6 6-6h28" fill="#e2c88e" ' + SW + '/><path d="M16 10c-4 0-6 3-6 6s2 5 6 5h4V16c0-3-2-6-4-6z" fill="#e2c88e" ' + SW + '/>' +
+    '<path d="M27 22h17M27 30h17M27 38h11" stroke="#a88552" stroke-width="3" stroke-linecap="round"/>' +
+    '<path d="M40 40l4 4 9-10" stroke="#3fae55" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>');
   function ladle(col, extra) {
     return svg('<path d="M44 6l-16 30" stroke="' + O + '" stroke-width="9" stroke-linecap="round"/>' +
       '<path d="M44 6l-16 30" stroke="' + col + '" stroke-width="4.5" stroke-linecap="round"/>' +
@@ -94,6 +125,8 @@
   I.c6 = ladle('#fff1a8', sparkle(50, 36, 7) + sparkle(56, 52, 4, '#c9b6ff'));
   I.c7 = ladle('#ff9be9', '<path d="M42 46c3-5 8-5 9 0s6 5 9 0-6-5-9 0-6 5-9 0z" fill="none" stroke="#ff9be9" stroke-width="3"/>');
   I.c8 = ladle('#b48cff', sparkle(50, 38, 8, '#fff1a8') + '<circle cx="57" cy="52" r="2" fill="#fff"/>');
+  I.c9 = ladle('#7f5cff', sparkle(50, 38, 7, '#9fd9ff') + sparkle(56, 54, 4, '#fff1a8') + '<circle cx="46" cy="52" r="2" fill="#fff"/>');
+  I.c10 = ladle('#ff6f9c', sparkle(50, 38, 9, '#ffe27a') + sparkle(57, 54, 4.5, '#5ff3e6') + sparkle(10, 12, 4, '#fff'));
   I.g1 = svg('<path d="M14 10h32c3 0 5 2 5 5v38c0 2-2 3-4 3H17c-3 0-5-2-5-5V12c0-1 1-2 2-2z" fill="#f2dfb0" ' + SW + '/>' +
     '<path d="M20 22h20M20 30h22M20 38h16" stroke="#a88552" stroke-width="3" stroke-linecap="round"/>' + sparkle(46, 46, 6, '#5be36b'));
   I.g2 = svg('<path d="M12 10h34a6 6 0 0 1 6 6v38H18a6 6 0 0 1-6-6z" fill="#7b4fd6" ' + SW + '/>' +
@@ -104,6 +137,14 @@
     '<path d="M27 18v14l8-7v14M24 44l8 6 8-6" fill="none" stroke="#5ff3e6" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>');
   I.g5 = svg('<path d="M32 6l20 18-20 34-20-34z" fill="#ff5d8f" ' + SW + '/><path d="M12 24h40M32 6l-8 18 8 34 8-34z" fill="none" stroke="#ffc2d4" stroke-width="2.5" stroke-linejoin="round"/>');
   I.g6 = svg('<circle cx="32" cy="32" r="22" fill="#2b2547" ' + SW + '/>' + sparkle(32, 32, 16, '#fff1a8') + '<circle cx="18" cy="20" r="2" fill="#9fd9ff"/><circle cx="46" cy="46" r="2.4" fill="#ff9be9"/>');
+  I.g7 = svg('<path d="M8 46a24 24 0 0 1 48 0" fill="none" stroke="' + O + '" stroke-width="15" stroke-linecap="round"/>' +
+    '<path d="M8 46a24 24 0 0 1 48 0" fill="none" stroke="#ff6f9c" stroke-width="9" stroke-linecap="round"/>' +
+    '<path d="M14 46a18 18 0 0 1 36 0" fill="none" stroke="#ffe27a" stroke-width="5"/>' +
+    '<path d="M19 46a13 13 0 0 1 26 0" fill="none" stroke="#5ff3e6" stroke-width="4"/>' + sparkle(32, 14, 6, '#fff'));
+  I.g8 = svg('<path d="M32 4l7 16 17 2-13 11 4 17-15-9-15 9 4-17L8 22l17-2z" fill="#ffcf4a" ' + SW + '/>' +
+    '<path d="M32 16l3 8 8 1-6 5 2 8-7-4-7 4 2-8-6-5 8-1z" fill="#fff3b0"/>' + sparkle(52, 52, 6, '#ff6f9c') + sparkle(12, 52, 4, '#5ff3e6'));
+  I.k1 = I.combo; I.k2 = I.combo; I.k3 = I.combo; I.k4 = I.fever; I.k5 = I.combo;
+  I.f1 = I.bubble; I.f2 = I.bubble; I.f3 = I.bubbleGold;
   I.tornado = svg('<path d="M8 10h48M14 20h38M20 30h28M24 40h18M28 50h10M31 58h4" stroke="' + O + '" stroke-width="9" stroke-linecap="round"/>' +
     '<path d="M8 10h48M14 20h38M20 30h28M24 40h18M28 50h10M31 58h4" stroke="#5be36b" stroke-width="4.5" stroke-linecap="round"/>' + sparkle(52, 36, 5));
   I.b1 = I.tornado; I.b2 = I.tornado; I.b3 = I.tornado; I.b4 = I.tornado;
@@ -155,7 +196,8 @@
   var CAUL = [
     ['#2c2742', '#4a4370', '#120d1d', ''], ['#9a5230', '#d07a48', '#4a230f', 'patina'], ['#a7aec4', '#e3e8f5', '#3b3f55', 'shine'],
     ['#e2a93a', '#ffe08a', '#6b430a', 'gems'], ['#2fa36c', '#8de8bb', '#0b3d26', 'runes'], ['#8e6ff0', '#e2d6ff', '#2d1a72', 'facets'],
-    ['#2a1d22', '#5a3a36', '#0a0505', 'cracks'], ['#1e2a72', '#8fa8ff', '#0a0f33', 'stars']];
+    ['#2a1d22', '#5a3a36', '#0a0505', 'cracks'], ['#1e2a72', '#8fa8ff', '#0a0f33', 'stars'],
+    ['#ff8fc6', '#ffd3ea', '#8a1f5a', 'candy'], ['#7f5cff', '#ffffff', '#2d1a72', 'rainbow']];
   var caulCache = {};
   BW.iconCauldron = function (n) {
     n = Math.max(0, Math.min(CAUL.length - 1, n | 0));
@@ -168,6 +210,8 @@
     if (d === 'facets') deco = '<path d="M14 34l12 16M30 34l-6 22M42 34l6 18" stroke="#fff" stroke-width="2" opacity=".55"/>';
     if (d === 'cracks') deco = '<path d="M18 38l6 5-2 6 6 4M44 36l-4 7 5 4" stroke="#ff8a2a" stroke-width="2.6" fill="none" stroke-linejoin="round" stroke-linecap="round"/>';
     if (d === 'stars') deco = sparkle(22, 44, 4, '#fff3b0') + sparkle(41, 48, 3, '#fff') + sparkle(33, 41, 2.2, '#fff');
+    if (d === 'candy') deco = '<path d="M16 42l8-6M26 50l12-10M40 52l10-8" stroke="#fff" stroke-width="3.2" stroke-linecap="round" opacity=".85"/>';
+    if (d === 'rainbow') deco = '<path d="M13 46q19-12 38 0" stroke="#ff6f9c" stroke-width="3.2" fill="none"/><path d="M15 50q17-10 34 0" stroke="#ffe27a" stroke-width="3.2" fill="none"/><path d="M18 54q14-8 28 0" stroke="#5ff3e6" stroke-width="3.2" fill="none"/>';
     caulCache[n] = svg('<rect x="17" y="51" width="8" height="8" rx="2" fill="' + m[2] + '" ' + SW + '/><rect x="39" y="51" width="8" height="8" rx="2" fill="' + m[2] + '" ' + SW + '/>' +
       '<path d="M9 27C8 45 19 56 32 56S56 45 55 27z" fill="' + m[0] + '" ' + SW + '/>' +
       '<path d="M11 36q21 7 42 0" stroke="' + m[2] + '" stroke-width="4" fill="none"/>' + deco +
@@ -177,25 +221,23 @@
     return caulCache[n];
   };
 
-  BW.ICON_FOR_HELPER = ['spoon', 'frog', 'shroom', 'cat', 'crystal', 'broom', 'bog', 'altar', 'dragon', 'forge', 'galaxy'];
+  BW.ICON_FOR_HELPER = ['spoon', 'frog', 'shroom', 'cat', 'crystal', 'broom', 'bog', 'altar', 'dragon', 'forge', 'galaxy', 'unicorn', 'portal'];
   var ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI'];
+  function badge(base, k) {
+    return base.replace('</svg>', '<circle cx="48.5" cy="48.5" r="14.5" fill="#ffd36b" ' + SW + '/>' +
+      '<text x="48.5" y="54" text-anchor="middle" font-size="' + (k >= 2 ? 13.5 : 16) + '" font-weight="800" fill="' + O + '" font-family="BrewDisplay, sans-serif">' + ROMAN[k] + '</text></svg>');
+  }
   BW.icon = function (name) { return I[name] || I.potion; };
   BW.iconForUpgrade = function (u) {
-    if (u.kind === 'tier') {
-      var base = I[BW.ICON_FOR_HELPER[u.helper]];
-      return base.replace('</svg>', '<circle cx="48.5" cy="48.5" r="14.5" fill="#ffd36b" ' + SW + '/>' +
-        '<text x="48.5" y="54" text-anchor="middle" font-size="' + (u.tier >= 2 ? 13.5 : 16) + '" font-weight="800" fill="' + O + '" font-family="BrewDisplay, sans-serif">' + ROMAN[u.tier] + '</text></svg>');
-    }
-    if (u.kind === 'hand') {
-      var k = Number(u.id.slice(1)) - 1;
-      return (k >= 4 ? I.handGold : I.hand).replace('</svg>', '<circle cx="48.5" cy="48.5" r="14.5" fill="#ffd36b" ' + SW + '/>' +
-        '<text x="48.5" y="54" text-anchor="middle" font-size="' + (k >= 2 ? 13.5 : 16) + '" font-weight="800" fill="' + O + '" font-family="BrewDisplay, sans-serif">' + ROMAN[k] + '</text></svg>');
-    }
+    if (u.kind === 'tier') return badge(I[BW.ICON_FOR_HELPER[u.helper]], u.tier);
+    if (u.kind === 'hand') { var k = Number(u.id.slice(1)) - 1; return badge(k >= 4 ? I.handGold : I.hand, k); }
+    if (u.kind === 'combo' || u.kind === 'luck' || u.kind === 'bubble') return badge(u.kind === 'luck' ? I.lucky : I[u.id], Number(u.id.slice(1)) - 1);
     return I[u.id] || I.potion;
   };
   BW.iconForAch = function (a) {
     if (a.cat === 'stage') return BW.iconCauldron(a.n);
-    var map = { brew: 'potion', click: 'c1', pps: 'g3', helpers: 'frog', nado: 'tornado', wisp: 'wisp', moon: 'moonstone', ups: 'g2', hands: 'hand', lucky: 'lucky' };
+    var map = { brew: 'potion', click: 'c1', pps: 'g3', helpers: 'frog', nado: 'tornado', wisp: 'wisp', moon: 'moonstone', ups: 'g2', hands: 'hand', lucky: 'lucky',
+      combo: 'combo', fever: 'fever', jackpot: 'jackpot', bubble: 'bubble', quest: 'scroll' };
     return I[map[a.cat]] || I.trophy;
   };
 })(typeof window !== 'undefined' ? (window.BW = window.BW || {}) : (global.BW = global.BW || {}));

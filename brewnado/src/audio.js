@@ -79,12 +79,13 @@
   var PENTA = [72, 74, 76, 79, 81, 84, 86, 88, 91, 93];
 
   var S = {};
-  S.bloop = function (power) {
+  // combo: the pitch climbs one octave over 40 hits (then stays up there)
+  S.bloop = function (power, combo) {
     if (!ready() || !want.sfx) return;
     var t = ctx.currentTime;
     if (t - lastBloop < 0.028) return;
     lastBloop = t;
-    var f = 430 * (0.88 + Math.random() * 0.3) * (power ? 1.15 : 1);
+    var f = 430 * (0.94 + Math.random() * 0.12) * (power ? 1.15 : 1) * Math.pow(2, Math.min(combo || 0, 40) / 40);
     tone('sine', f, t, 0.13, 0.32, { to: f * 0.5, slide: 0.1 });
     tone('triangle', f * 2.1, t + 0.01, 0.07, 0.07, { to: f * 1.3 });
   };
@@ -166,6 +167,37 @@
     var t = ctx.currentTime;
     [67, 72, 76, 79].forEach(function (m, i) { tone('triangle', midi(m), t + i * 0.09, 0.32, 0.12); bell(midi(m + 12), t + i * 0.09, 0.05, 0.3); });
   };
+  S.comboUp = function (level) {
+    if (!ready() || !want.sfx) return;
+    var t = ctx.currentTime, base = 72 + Math.min(12, level * 2);
+    [0, 4, 7, 12, 16].slice(0, 3 + Math.min(2, level)).forEach(function (m, i) { bell(midi(base + m), t + i * 0.045, 0.1, 0.4); });
+    if (level >= 4) noise(t, 0.4, 0.1, 2000, 8000, 1.5);
+  };
+  S.fever = function () {
+    if (!ready() || !want.sfx) return;
+    var t = ctx.currentTime;
+    noise(t, 0.8, 0.25, 400, 6000, 1.2);
+    [72, 76, 79, 84, 88, 91, 96, 100].forEach(function (m, i) { bell(midi(m), t + i * 0.04, 0.11, 0.45); tone('square', midi(m - 12), t + i * 0.04, 0.06, 0.02); });
+  };
+  S.jackpot = function () {
+    if (!ready() || !want.sfx) return;
+    var t = ctx.currentTime;
+    for (var i = 0; i < 14; i++) bell(midi(PENTA[i % PENTA.length] + (i >= 10 ? 12 : 0)), t + i * 0.035, 0.08, 0.3);
+    [72, 76, 79, 84].forEach(function (m) { bell(midi(m), t + 0.55, 0.12, 1.2); tone('triangle', midi(m - 12), t + 0.55, 0.9, 0.05); });
+    noise(t + 0.5, 0.7, 0.16, 3000, 9000, 1.5);
+  };
+  S.bubblePop = function (golden) {
+    if (!ready() || !want.sfx) return;
+    var t = ctx.currentTime;
+    tone('sine', 300, t, 0.09, 0.3, { to: 1400, slide: 0.06 });
+    noise(t, 0.08, 0.12, 2500, 6000, 3);
+    if (golden) [84, 88, 91, 96].forEach(function (m, i) { bell(midi(m), t + 0.05 + i * 0.05, 0.1, 0.5); });
+  };
+  S.questDone = function () {
+    if (!ready() || !want.sfx) return;
+    var t = ctx.currentTime;
+    [67, 72, 76, 79, 84].forEach(function (m, i) { tone('triangle', midi(m), t + i * 0.07, 0.25, 0.1); bell(midi(m + 12), t + i * 0.07, 0.05, 0.3); });
+  };
   S.moonrise = function () {
     if (!ready() || !want.sfx) return;
     var t = ctx.currentTime;
@@ -177,7 +209,7 @@
   var CHORDS = [[69, 72, 76], [65, 69, 72], [67, 72, 76], [67, 71, 74]];
   var BASS = [45, 41, 48, 43];
   var ARP = [0, 1, 2, 1, 3, 2, 1, 2];
-  var TEMPO = 84, STEP = 60 / TEMPO / 2;   // eighth notes
+  var TEMPO = 84, STEP = 60 / TEMPO / 2;   // eighth notes (faster during FEVER)
   var timer = null, nextT = 0, step = 0;
   function schedule() {
     if (!ctx || ctx.state !== 'running') return;
@@ -207,7 +239,10 @@
     timer = null;
   }
 
+  function setFever(on) { STEP = 60 / (on ? 120 : TEMPO) / 2; }
+
   BW.audio = {
+    setFever: setFever,
     unlock: unlock, suspend: suspend, resume: resume, sfx: S,
     set: function (sfx, music) { want.sfx = !!sfx; want.music = !!music; apply(); },
     setSdkMuted: function (m) { sdkMuted = !!m; apply(); },
